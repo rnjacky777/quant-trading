@@ -1,0 +1,11 @@
+services:
+  api:
+    build: .
+    environment:
+      QUANT_DB_PATH: /app/data/market.sqlite3
+      QUANT_EXCHANGE: ${QUANT_EXCHANGE:-binance}
+      LIVE_TRADING: "false"
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
