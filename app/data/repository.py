@@ -55,3 +55,24 @@ class CandleRepository:
                 ORDER BY timestamp_ms DESC LIMIT ?
             """, (exchange, symbol, timeframe, limit)).fetchall()
         return [Candle(**dict(row)) for row in reversed(rows)]
+
+    def list_range(
+        self,
+        exchange: str,
+        symbol: str,
+        timeframe: str,
+        since_ms: int,
+        until_ms: int,
+    ) -> list[Candle]:
+        if symbol not in SYMBOLS or timeframe not in TIMEFRAMES_MS:
+            raise ValueError("invalid candle query")
+        if since_ms < 0 or until_ms <= since_ms:
+            raise ValueError("invalid candle range")
+        with closing(self._connect()) as connection:
+            rows = connection.execute("""
+                SELECT * FROM candles
+                WHERE exchange=? AND symbol=? AND timeframe=?
+                  AND timestamp_ms>=? AND timestamp_ms<?
+                ORDER BY timestamp_ms ASC
+            """, (exchange, symbol, timeframe, since_ms, until_ms)).fetchall()
+        return [Candle(**dict(row)) for row in rows]
