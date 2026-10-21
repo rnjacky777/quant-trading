@@ -35,6 +35,7 @@ class BacktestEngine:
         candles: list[Candle],
         strategy: Strategy,
         *,
+        evaluation_start_ms: int | None = None,
         funding_rates: list[FundingRate] | None = None,
         mark_prices: list[MarkPriceCandle] | None = None,
         margin_model: MaintenanceMarginModel | None = None,
@@ -44,13 +45,16 @@ class BacktestEngine:
         cash = self.config.initial_cash
         position: _OpenPosition | None = None
         trades: list[Trade] = []
-        curve = [EquityPoint(candles[0].timestamp_ms, cash, False)]
         maximum_margin_ratio = 0.0
         funding_rates = funding_rates or []
         mark_prices = mark_prices or []
         interval = TIMEFRAMES_MS[candles[0].timeframe]
+        start_index = self._evaluation_start_index(candles, evaluation_start_ms)
+        curve = [
+            EquityPoint(candles[start_index].timestamp_ms - interval, cash, False)
+        ]
 
-        for index in range(1, len(candles)):
+        for index in range(start_index, len(candles)):
             signal = strategy.generate(candles[:index])
             candle = candles[index]
             if signal.symbol != candle.symbol:
@@ -172,6 +176,24 @@ class BacktestEngine:
             trades=trades,
             equity_curve=curve,
         )
+
+    @staticmethod
+    def _evaluation_start_index(
+        candles: list[Candle], evaluation_start_ms: int | None
+    ) -> int:
+        if evaluation_start_ms is None:
+            return 1
+        if not candles[0].timestamp_ms <= evaluation_start_ms <= candles[-1].timestamp_ms:
+            raise ValueError("evaluation start must fall inside candle data")
+        index = next(
+            (
+                index
+                for index, candle in enumerate(candles)
+                if candle.timestamp_ms >= evaluation_start_ms
+            ),
+            len(candles),
+        )
+        return max(1, index)
 
     def _buy(self, cash: float, candle: Candle) -> tuple[float, _OpenPosition]:
         price = execution_price(candle.open, self.config.slippage_bps, is_buy=True)

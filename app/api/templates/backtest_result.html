@@ -24,6 +24,7 @@
 {% else %}
 <p class="saved-note">已建立{% if saved_version %}策略版本 V{{ saved_version }} · {% endif %}{{ values.stage }} · 實驗 <span class="mono">{{ saved_run.run_key[:10] }}</span>{% if values.note %} · {{ values.note }}{% endif %}</p>
 {% endif %}
+<p class="form-note">績效只計算 {{ values.since }} 至 {{ values.until }}；另外使用區間前 {{ warmup_count }} 根 K 線計算指標{% if warmup_count < warmup_required %}（完整暖機需要 {{ warmup_required }} 根，目前資料不足，策略會延後產生訊號）{% endif %}。</p>
 
 {% if values.stage == "development" %}
 <section class="panel optimization-cta">

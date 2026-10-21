@@ -7,6 +7,7 @@ from math import isfinite
 from app.backtest.engine import BacktestEngine
 from app.backtest.models import BacktestConfig
 from app.config.settings import Settings
+from app.data.models import TIMEFRAMES_MS
 from app.data.repository import CandleRepository
 from app.strategies.buy_and_hold import BuyAndHoldStrategy
 from app.strategies.trend_following import MovingAverageTrendStrategy
@@ -37,7 +38,8 @@ def main() -> None:
     args = parser.parse_args()
 
     settings = Settings.from_env()
-    candles = CandleRepository(settings.db_path).list_range(
+    repository = CandleRepository(settings.db_path)
+    candles = repository.list_range(
         settings.exchange_id, args.symbol, args.timeframe, args.since, args.until
     )
     if not candles:
@@ -47,6 +49,21 @@ def main() -> None:
         if args.strategy == "sma"
         else BuyAndHoldStrategy()
     )
+    warmup_required = args.slow if args.strategy == "sma" else 1
+    interval = TIMEFRAMES_MS[args.timeframe]
+    warmup_since_ms = max(0, args.since - warmup_required * interval)
+    warmup_candles = (
+        repository.list_range(
+            settings.exchange_id,
+            args.symbol,
+            args.timeframe,
+            warmup_since_ms,
+            args.since,
+        )
+        if warmup_since_ms < args.since
+        else []
+    )
+    signal_candles = warmup_candles + candles
     result = BacktestEngine(BacktestConfig(
         initial_cash=args.initial_cash,
         fee_bps=args.fee_bps,
@@ -54,7 +71,7 @@ def main() -> None:
         stop_loss_pct=args.stop_loss_pct / 100 if args.stop_loss_pct else None,
         take_profit_pct=args.take_profit_pct / 100 if args.take_profit_pct else None,
         leverage=args.leverage,
-    )).run(candles, strategy)
+    )).run(signal_candles, strategy, evaluation_start_ms=args.since)
     payload = {
         "strategy": result.strategy_name,
         "symbol": result.symbol,
@@ -71,6 +88,7 @@ def main() -> None:
             "since_ms": candles[0].timestamp_ms,
             "until_ms": candles[-1].timestamp_ms,
             "candles": len(candles),
+            "warmup_candles": len(warmup_candles),
         },
     }
     print(json.dumps(payload, indent=2, allow_nan=False))

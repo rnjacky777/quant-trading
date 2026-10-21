@@ -155,6 +155,7 @@ class BacktestRunRepository:
         fast_period: int | None,
         slow_period: int | None,
         base_run_key: str | None = None,
+        signal_candles: list[Candle] | None = None,
     ) -> BacktestRun:
         return self.save_with_status(
             result=result,
@@ -165,6 +166,7 @@ class BacktestRunRepository:
             fast_period=fast_period,
             slow_period=slow_period,
             base_run_key=base_run_key,
+            signal_candles=signal_candles,
         ).run
 
     def save_with_status(
@@ -177,8 +179,9 @@ class BacktestRunRepository:
         fast_period: int | None,
         slow_period: int | None,
         base_run_key: str | None = None,
+        signal_candles: list[Candle] | None = None,
     ) -> SavedBacktestRun:
-        fingerprint = _fingerprint(candles)
+        fingerprint = _fingerprint(signal_candles or candles)
         identity = json.dumps(
             {
                 "strategy": result.strategy_name,

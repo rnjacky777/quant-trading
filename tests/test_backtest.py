@@ -60,6 +60,27 @@ def test_sma_strategy_emits_target_state() -> None:
     assert strategy.generate([candle(0, 110), candle(1, 100)]).action is Action.SELL
 
 
+def test_indicator_warmup_is_used_without_counting_pre_period_performance() -> None:
+    strategy = MovingAverageTrendStrategy(fast_period=1, slow_period=2)
+    candles = [
+        candle(0, 100),
+        candle(1, 110),
+        candle(2, 120),
+        candle(3, 130),
+    ]
+    without_warmup = BacktestEngine(
+        BacktestConfig(fee_bps=0, slippage_bps=0)
+    ).run(candles[2:], strategy)
+    with_warmup = BacktestEngine(
+        BacktestConfig(fee_bps=0, slippage_bps=0)
+    ).run(candles, strategy, evaluation_start_ms=2 * STEP)
+
+    assert without_warmup.metrics.number_of_trades == 0
+    assert with_warmup.metrics.number_of_trades == 1
+    assert with_warmup.trades[0].entry_timestamp_ms == 2 * STEP
+    assert with_warmup.final_equity == pytest.approx(10_833.333333)
+
+
 def test_missing_candle_is_rejected() -> None:
     with pytest.raises(ValueError, match="missing interval"):
         BacktestEngine().run([candle(0, 100), candle(2, 100)], AlwaysLong())

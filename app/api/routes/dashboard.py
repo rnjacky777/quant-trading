@@ -299,10 +299,26 @@ def run_backtest(
             raise ValueError("策略基準版本識別碼無效")
         settings = Settings.from_env()
         since_ms, until_ms = _utc_ms(since), _utc_ms(until)
-        candles = CandleRepository(settings.db_path).list_range(
+        candle_repository = CandleRepository(settings.db_path)
+        candles = candle_repository.list_range(
             settings.exchange_id, symbol, timeframe, since_ms, until_ms
         )
         _validate_range_coverage(candles, timeframe, since_ms, until_ms)
+        warmup_required = slow if strategy == "sma" else 1
+        interval = TIMEFRAMES_MS[timeframe]
+        warmup_since_ms = max(0, since_ms - warmup_required * interval)
+        warmup_candles = (
+            candle_repository.list_range(
+                settings.exchange_id,
+                symbol,
+                timeframe,
+                warmup_since_ms,
+                since_ms,
+            )
+            if warmup_since_ms < since_ms
+            else []
+        )
+        signal_candles = warmup_candles + candles
         selected_strategy = (
             MovingAverageTrendStrategy(fast, slow)
             if strategy == "sma"
@@ -316,7 +332,11 @@ def run_backtest(
             take_profit_pct=take_profit_pct / 100 if take_profit_pct else None,
             leverage=leverage,
         )
-        result = BacktestEngine(config).run(candles, selected_strategy)
+        result = BacktestEngine(config).run(
+            signal_candles,
+            selected_strategy,
+            evaluation_start_ms=since_ms,
+        )
         run_repository = BacktestRunRepository(settings.db_path)
         save_result = run_repository.save_with_status(
             result=result,
@@ -327,6 +347,7 @@ def run_backtest(
             fast_period=fast if strategy == "sma" else None,
             slow_period=slow if strategy == "sma" else None,
             base_run_key=base_run_key or None,
+            signal_candles=signal_candles,
         )
         saved_run = save_result.run
         saved_version = next(
@@ -360,6 +381,8 @@ def run_backtest(
             "first_date": _format_date(candles[0].timestamp_ms),
             "last_date": _format_date(candles[-1].timestamp_ms),
             "candle_count": len(candles),
+            "warmup_count": len(warmup_candles),
+            "warmup_required": warmup_required,
             "values": values,
             "format_date": _format_date,
             "saved_run": saved_run,

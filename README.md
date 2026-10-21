@@ -54,6 +54,12 @@ one candle, the conservative stop-first assumption is used.
 
 The first backtest is a long/cash SMA trend baseline. A signal uses a completed candle and executes at the next candle's open. Fees and adverse slippage are charged on entry and exit. Strategy code emits only BUY/SELL/HOLD; allocation remains outside the strategy.
 
+Indicator backtests load the required candles before the requested start date as
+warm-up history. Warm-up candles can influence signals, but orders and performance
+measurement begin only at the requested start. The result page reports how many
+warm-up candles were available so a short date range does not silently produce
+misleading zero-trade results.
+
 ```powershell
 python -m scripts.backtest --symbol BTC/USDT --timeframe 1d `
   --since 2020-01-01T00:00:00+00:00 --until 2025-01-01T00:00:00+00:00 `

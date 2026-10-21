@@ -72,7 +72,9 @@ def main() -> None:
     run = repository.get_run(selected_run_key)
     if run is None:
         parser.error("run_key does not exist")
-    candles, base_result, base_config = _reproduce(args.db, args.exchange, run)
+    candles, signal_candles, base_result, base_config = _reproduce(
+        args.db, args.exchange, run
+    )
     advice = analyze_backtest(base_result, base_config)
     if args.command == "analyze":
         _print_json(_analysis_payload(repository, run, base_result, advice))
@@ -115,6 +117,7 @@ def main() -> None:
         fast_period=fast if run.fast_period is not None else None,
         slow_period=slow if run.slow_period is not None else None,
         base_run_key=run.run_key,
+        signal_candles=signal_candles,
     )
     if request is not None:
         request_repository.complete(
@@ -201,14 +204,36 @@ def _queue_payload(
 
 def _reproduce(
     db_path: Path, exchange: str, run: BacktestRun
-) -> tuple[list[Candle], BacktestResult, BacktestConfig]:
+) -> tuple[list[Candle], list[Candle], BacktestResult, BacktestConfig]:
     until_ms = run.until_ms + TIMEFRAMES_MS[run.timeframe]
-    candles = CandleRepository(db_path).list_range(
+    repository = CandleRepository(db_path)
+    candles = repository.list_range(
         exchange, run.symbol, run.timeframe, run.since_ms, until_ms
     )
     if not candles:
         raise SystemExit("selected backtest candles are unavailable")
+    signal_candles = candles
+    evaluation_start_ms: int | None = None
     if _fingerprint(candles) != run.data_fingerprint:
+        warmup_required = run.slow_period if run.slow_period is not None else 1
+        warmup_since_ms = max(
+            0,
+            run.since_ms - warmup_required * TIMEFRAMES_MS[run.timeframe],
+        )
+        warmup_candles = (
+            repository.list_range(
+                exchange,
+                run.symbol,
+                run.timeframe,
+                warmup_since_ms,
+                run.since_ms,
+            )
+            if warmup_since_ms < run.since_ms
+            else []
+        )
+        signal_candles = warmup_candles + candles
+        evaluation_start_ms = run.since_ms
+    if _fingerprint(signal_candles) != run.data_fingerprint:
         raise SystemExit(
             "selected backtest dataset changed; exact reproduction is unavailable"
         )
@@ -221,8 +246,12 @@ def _reproduce(
         leverage=run.leverage,
     )
     strategy = _strategy(run, run.fast_period, run.slow_period)
-    result = BacktestEngine(config).run(candles, strategy)
-    return candles, result, config
+    result = BacktestEngine(config).run(
+        signal_candles,
+        strategy,
+        evaluation_start_ms=evaluation_start_ms,
+    )
+    return candles, signal_candles, result, config
 
 
 def _strategy(
