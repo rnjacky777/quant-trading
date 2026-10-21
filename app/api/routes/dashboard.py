@@ -18,7 +18,7 @@ from app.backtest.optimization import (
 from app.backtest.runs import (
     BacktestRun,
     BacktestRunRepository,
-    StrategyAdjustmentLog,
+    StrategyVersion,
 )
 from app.config.settings import Settings
 from app.data.downloader import download_candles
@@ -83,32 +83,24 @@ def dashboard(request: Request) -> HTMLResponse:
     settings = Settings.from_env()
     coverage = CandleRepository(settings.db_path).list_coverage(settings.exchange_id)
     run_repository = BacktestRunRepository(settings.db_path)
-    adjustment_logs = run_repository.list_adjustments()
-    versions_by_run = {
-        log.run_key: log.version_number for log in adjustment_logs
+    strategy_versions = run_repository.list_strategy_versions()
+    versions_by_key = {
+        version.strategy_key: version.version_number for version in strategy_versions
     }
     history = [
-        _history_item(run, versions_by_run.get(run.run_key))
+        _history_item(run, versions_by_key.get(run.strategy_key or ""))
         for run in run_repository.list_recent()
     ]
-    adjustments = []
-    for log in adjustment_logs:
-        run = run_repository.get_run(log.run_key)
-        if run is not None:
-            adjustments.append(
-                _adjustment_item(
-                    log,
-                    run,
-                    versions_by_run.get(log.previous_run_key)
-                    if log.previous_run_key else None,
-                )
-            )
     pending_run_keys = {
         item.base_run_key
         for item in OptimizationRequestRepository(settings.db_path).list_requests(
             "pending"
         )
     }
+    adjustments = [
+        _strategy_version_item(version, run_repository, versions_by_key)
+        for version in strategy_versions
+    ]
     return templates.TemplateResponse(
         request=request,
         name="dashboard.html",
@@ -134,7 +126,7 @@ def dashboard(request: Request) -> HTMLResponse:
             ),
             "adjustments": adjustments,
             "adjustment_versions": sorted(
-                {item["log"].version_number for item in adjustments}
+                {item["version"].version_number for item in adjustments}
             ),
             "pending_run_keys": pending_run_keys,
         },
@@ -145,11 +137,9 @@ def dashboard(request: Request) -> HTMLResponse:
 def strategy_optimizations(request: Request) -> HTMLResponse:
     settings = Settings.from_env()
     run_repository = BacktestRunRepository(settings.db_path)
-    logs = run_repository.list_adjustments(200)
-    versions = {log.run_key: log.version_number for log in logs}
     requests = OptimizationRequestRepository(settings.db_path).list_requests()
     items = [
-        _optimization_item(item, run_repository, versions) for item in requests
+        _optimization_item(item, run_repository) for item in requests
     ]
     return templates.TemplateResponse(
         request=request,
@@ -350,14 +340,8 @@ def run_backtest(
             signal_candles=signal_candles,
         )
         saved_run = save_result.run
-        saved_version = next(
-            (
-                log.version_number
-                for log in run_repository.list_adjustments(200)
-                if log.run_key == saved_run.run_key
-            ),
-            None,
-        )
+        version = run_repository.get_strategy_version_for_run(saved_run.run_key)
+        saved_version = version.version_number if version else None
         advice = analyze_backtest(result, config)
     except ValueError as exc:
         return templates.TemplateResponse(
@@ -388,6 +372,7 @@ def run_backtest(
             "saved_run": saved_run,
             "saved_version": saved_version,
             "saved_duplicate": not save_result.created,
+            "saved_strategy_created": save_result.strategy_created,
             "advice": advice,
             "advice_url": _advice_url(values, saved_run.run_key, advice),
         },
@@ -453,95 +438,106 @@ def _advice_url(
     return f"/?{urlencode(query)}#backtest"
 
 
-def _adjustment_item(
-    log: StrategyAdjustmentLog,
-    run: BacktestRun,
-    parent_version: int | None,
+def _strategy_version_item(
+    version: StrategyVersion,
+    repository: BacktestRunRepository,
+    versions_by_key: dict[str, int],
 ) -> dict[str, object]:
     labels = {
-        "since_ms": "開始日期",
-        "until_ms": "結束日期",
         "fast_period": "快速均線",
         "slow_period": "慢速均線",
-        "initial_cash": "初始資金",
-        "fee_bps": "手續費 bps",
-        "slippage_bps": "滑價 bps",
         "stop_loss_pct": "止損",
         "take_profit_pct": "止盈",
         "leverage": "槓桿",
-        "stage": "研究階段",
-        "data_fingerprint": "市場資料版本",
     }
 
     def display(field: str, value: object) -> str:
         if value is None:
             return "未設定"
-        if field in {"since_ms", "until_ms"}:
-            return _format_date(int(value))
         if field in {"stop_loss_pct", "take_profit_pct"}:
             return f"{float(value) * 100:.1f}%"
         if field == "leverage":
             return f"{float(value):.1f}x"
-        if field == "data_fingerprint":
-            return str(value)[:8]
         return str(value)
 
+    parent = (
+        repository.get_strategy_version(version.previous_strategy_key)
+        if version.previous_strategy_key
+        else None
+    )
+    fields = tuple(labels)
     changes = [
         {
-            "label": labels.get(field, field),
-            "before": display(field, values["from"]),
-            "after": display(field, values["to"]),
+            "label": labels[field],
+            "before": display(field, getattr(parent, field)),
+            "after": display(field, getattr(version, field)),
         }
-        for field, values in log.changes.items()
+        for field in fields
+        if parent is not None and getattr(parent, field) != getattr(version, field)
     ]
-    history_item = _history_item(run)
+    runs = repository.list_runs_for_strategy(version.strategy_key)
+    latest_run = runs[0]
+    development_run = next((run for run in runs if run.stage == "development"), None)
+    selectable_run = development_run or latest_run
+    history_item = _history_item(selectable_run, version.version_number)
     development_query = dict(
-        symbol=run.symbol,
-        timeframe=run.timeframe,
-        strategy=log.strategy_family,
-        since=_format_date(run.since_ms),
-        until=_format_date(run.until_ms + TIMEFRAMES_MS[run.timeframe]),
-        initial_cash=run.initial_cash,
-        fee_bps=run.fee_bps,
-        slippage_bps=run.slippage_bps,
-        stop_loss_pct=(run.stop_loss_pct or 0) * 100,
-        take_profit_pct=(run.take_profit_pct or 0) * 100,
-        leverage=run.leverage,
+        symbol=selectable_run.symbol,
+        timeframe=selectable_run.timeframe,
+        strategy=version.strategy_family,
+        since=_format_date(selectable_run.since_ms),
+        until=_format_date(
+            selectable_run.until_ms + TIMEFRAMES_MS[selectable_run.timeframe]
+        ),
+        initial_cash=selectable_run.initial_cash,
+        fee_bps=selectable_run.fee_bps,
+        slippage_bps=selectable_run.slippage_bps,
+        stop_loss_pct=(selectable_run.stop_loss_pct or 0) * 100,
+        take_profit_pct=(selectable_run.take_profit_pct or 0) * 100,
+        leverage=selectable_run.leverage,
         stage="development",
-        note=f"基於 V{log.version_number} 建立 Development 分支，請設定 Development 日期",
-        base_run_key=run.run_key,
+        note=(
+            f"基於 V{version.version_number} 建立 Development 實驗，"
+            "請設定 Development 日期"
+        ),
+        base_run_key=selectable_run.run_key,
         load_strategy="development_branch",
     )
-    if run.fast_period is not None and run.slow_period is not None:
-        development_query.update(fast=run.fast_period, slow=run.slow_period)
+    if version.fast_period is not None and version.slow_period is not None:
+        development_query.update(
+            fast=version.fast_period,
+            slow=version.slow_period,
+        )
     return {
-        "log": log,
+        "version": version,
         "changes": changes,
         "replay_url": history_item["replay_url"],
         "edit_url": history_item["edit_url"],
         "development_url": f"/?{urlencode(development_query)}#backtest",
-        "parent_version": parent_version,
+        "run_key": selectable_run.run_key,
+        "latest_run": latest_run,
+        "development_run": development_run,
+        "experiment_count": len(runs),
+        "parent_version": versions_by_key.get(version.previous_strategy_key or ""),
         "recorded_date": datetime.fromtimestamp(
-            log.created_at_ms / 1000, timezone.utc
+            version.created_at_ms / 1000, timezone.utc
         ).date().isoformat(),
         "strategy_label": (
-            "SMA 趨勢" if log.strategy_family == "sma" else "Buy & Hold"
+            "SMA 趨勢" if version.strategy_family == "sma" else "Buy & Hold"
         ),
         "created_at": datetime.fromtimestamp(
-            log.created_at_ms / 1000, timezone.utc
+            version.created_at_ms / 1000, timezone.utc
         ).strftime("%Y-%m-%d %H:%M UTC"),
-        "stage_label": {
+        "latest_stage_label": {
             "development": "Development",
             "validation": "Validation",
             "out_of_sample": "Out-of-Sample",
-        }[log.stage],
+        }[latest_run.stage],
     }
 
 
 def _optimization_item(
     item: OptimizationRequest,
     runs: BacktestRunRepository,
-    versions: dict[str, int],
 ) -> dict[str, object]:
     labels = {
         "fast": "快速均線",
@@ -552,12 +548,17 @@ def _optimization_item(
     }
     base = runs.get_run(item.base_run_key)
     candidate = runs.get_run(item.candidate_run_key) if item.candidate_run_key else None
+    base_strategy = runs.get_strategy_version_for_run(item.base_run_key)
+    candidate_strategy = (
+        runs.get_strategy_version_for_run(item.candidate_run_key)
+        if item.candidate_run_key else None
+    )
     return {
         "request": item,
         "base": base,
         "candidate": candidate,
-        "base_version": versions.get(item.base_run_key),
-        "candidate_version": versions.get(item.candidate_run_key or ""),
+        "base_version": base_strategy.version_number if base_strategy else None,
+        "candidate_version": candidate_strategy.version_number if candidate_strategy else None,
         "requested_at": datetime.fromtimestamp(
             item.requested_at_ms / 1000, timezone.utc
         ).strftime("%Y-%m-%d %H:%M UTC"),

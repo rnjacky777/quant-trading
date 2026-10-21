@@ -20,9 +20,11 @@
   <article><span>研究階段</span><strong>{{ values.stage }}</strong></article>
 </section>
 {% if saved_duplicate %}
-<div class="notice warning"><strong>重複設定：</strong>完全相同的資料、策略參數、風險設定與研究階段已存在。此次沿用{% if saved_version %} V{{ saved_version }}{% else %}既有紀錄{% endif %}，沒有建立新版本。</div>
-{% else %}
+<div class="notice warning"><strong>重複設定／實驗：</strong>完全相同的資料、策略參數、風險設定與研究階段已存在。此次沿用{% if saved_version %} V{{ saved_version }}{% else %}既有策略{% endif %}，沒有建立新實驗，也沒有建立新版本。</div>
+{% elif saved_strategy_created %}
 <p class="saved-note">已建立{% if saved_version %}策略版本 V{{ saved_version }} · {% endif %}{{ values.stage }} · 實驗 <span class="mono">{{ saved_run.run_key[:10] }}</span>{% if values.note %} · {{ values.note }}{% endif %}</p>
+{% else %}
+<p class="saved-note">策略參數未變更，沿用{% if saved_version %} V{{ saved_version }}{% else %}既有策略{% endif %} · 已新增 {{ values.stage }} 回測實驗 <span class="mono">{{ saved_run.run_key[:10] }}</span>{% if values.note %} · {{ values.note }}{% endif %}</p>
 {% endif %}
 <p class="form-note">績效只計算 {{ values.since }} 至 {{ values.until }}；另外使用區間前 {{ warmup_count }} 根 K 線計算指標{% if warmup_count < warmup_required %}（完整暖機需要 {{ warmup_required }} 根，目前資料不足，策略會延後產生訊號）{% endif %}。</p>
 

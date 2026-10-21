@@ -44,10 +44,12 @@ dataset after browser confirmation. It is research-only and cannot submit paper
 or live orders.
 
 Successful dashboard backtests are stored as reproducible experiment records in
-SQLite. Each record includes the research stage, data fingerprint, SMA settings,
-fees, slippage, fixed stop loss, fixed take profit, leverage, metrics, and notes.
-Identical settings on identical data reuse the existing version without changing
-its creation time, and the dashboard shows a duplicate warning. Fixed stops and targets use candle high/low; if both are touched in
+SQLite. Strategy versions and backtest experiments are separate records. A new
+strategy version is created only when the signal or risk parameters change:
+SMA periods, stop loss, take profit, or leverage. Changing dates, research stage,
+market data, initial cash, fees, or slippage creates another experiment under the
+same strategy version. Identical experiments reuse the existing record without
+changing its creation time, and the dashboard shows a duplicate warning. Fixed stops and targets use candle high/low; if both are touched in
 one candle, the conservative stop-first assumption is used.
 
 ## Baseline backtest

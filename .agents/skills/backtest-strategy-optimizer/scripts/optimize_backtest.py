@@ -160,23 +160,30 @@ def main() -> None:
 def _list_versions(
     repository: BacktestRunRepository, limit: int
 ) -> dict[str, Any]:
-    logs = repository.list_adjustments(limit)
+    versions = repository.list_strategy_versions(limit)
     return {
         "versions": [
             {
-                "version": log.version_number,
-                "run_key": log.run_key,
-                "based_on_run_key": log.previous_run_key,
-                "symbol": log.symbol,
-                "timeframe": log.timeframe,
-                "strategy": log.strategy_family,
-                "stage": log.stage,
-                "total_return": log.total_return,
-                "maximum_drawdown": log.maximum_drawdown,
-                "trades": log.number_of_trades,
-                "hypothesis": log.hypothesis,
+                "version": version.version_number,
+                "strategy_key": version.strategy_key,
+                "based_on_strategy_key": version.previous_strategy_key,
+                "symbol": version.symbol,
+                "timeframe": version.timeframe,
+                "strategy": version.strategy_family,
+                "fast_period": version.fast_period,
+                "slow_period": version.slow_period,
+                "stop_loss_pct": version.stop_loss_pct,
+                "take_profit_pct": version.take_profit_pct,
+                "leverage": version.leverage,
+                "hypothesis": version.hypothesis,
+                "experiments": [
+                    _run_summary(repository, run)
+                    for run in repository.list_runs_for_strategy(
+                        version.strategy_key
+                    )
+                ],
             }
-            for log in logs
+            for version in versions
         ]
     }
 
@@ -302,14 +309,11 @@ def _analysis_payload(
 def _run_summary(
     repository: BacktestRunRepository, run: BacktestRun
 ) -> dict[str, Any]:
-    log = next(
-        (item for item in repository.list_adjustments(200) if item.run_key == run.run_key),
-        None,
-    )
+    version = repository.get_strategy_version_for_run(run.run_key)
     return {
-        "version": log.version_number if log else None,
+        "version": version.version_number if version else None,
+        "strategy_key": version.strategy_key if version else None,
         "run_key": run.run_key,
-        "based_on_run_key": log.previous_run_key if log else None,
         "symbol": run.symbol,
         "timeframe": run.timeframe,
         "strategy": run.strategy_name,

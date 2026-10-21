@@ -49,7 +49,7 @@
     <label>交易對<select name="symbol"><option>BTC/USDT</option><option>ETH/USDT</option></select></label>
     <label>週期<select name="timeframe"><option value="1d">1D</option><option value="4h">4H</option></select></label>
     <label>策略<select name="strategy"><option value="sma">SMA 趨勢</option><option value="buy-hold">Buy &amp; Hold</option></select></label>
-    <label>策略版本<select id="backtest-strategy-version"><option value="">自訂設定</option>{% for item in adjustments %}{% set log = item.log %}<option value="{{ item.replay_url }}" data-run-key="{{ log.run_key }}" data-symbol="{{ log.symbol }}" data-timeframe="{{ log.timeframe }}" data-strategy="{{ log.strategy_family }}">V{{ log.version_number }} · {{ "%+.2f"|format(log.total_return * 100) }}% · {{ item.created_at }}</option>{% endfor %}</select></label>
+    <label>策略版本<select id="backtest-strategy-version"><option value="">自訂設定</option>{% for item in adjustments %}{% set version = item.version %}<option value="{{ item.replay_url }}" data-run-key="{{ item.run_key }}" data-symbol="{{ version.symbol }}" data-timeframe="{{ version.timeframe }}" data-strategy="{{ version.strategy_family }}">{{ version.symbol }} {{ version.timeframe }} · V{{ version.version_number }} · {{ item.experiment_count }} 次實驗</option>{% endfor %}</select></label>
     <label>開始日期<input name="since" type="date" value="2020-01-01" required></label>
     <label>結束日期<input name="until" type="date" value="2025-01-01" required></label>
     <label>快速均線<input name="fast" type="number" value="20" min="1"></label>
@@ -68,8 +68,8 @@
 </section>
 
 <section class="panel" id="strategy-adjustments">
-  <div class="section-head"><div><p class="eyebrow">STRATEGY CHANGE LOG</p><h2>策略調整紀錄</h2></div><span>自動比較上一版設定</span></div>
-  <p class="form-note">每次新的回測設定都會留下修改前後、研究假設和結果。相同設定重跑不會建立重複紀錄。</p>
+  <div class="section-head"><div><p class="eyebrow">STRATEGY CHANGE LOG</p><h2>策略版本與調整紀錄</h2></div><span>只比較交易與風險參數</span></div>
+  <p class="form-note">修改均線、止損、止盈或槓桿才會建立新策略版本。日期、研究階段、市場資料、初始資金、手續費與滑價屬於回測實驗，不會讓策略升版。</p>
   {% if adjustments %}
   <form class="history-filters" id="adjustment-filters" data-persist-key="quant-adjustment-filters">
     <label>紀錄開始日期<input name="recorded_from" type="date"></label>
@@ -81,16 +81,16 @@
   </form>
   <p class="filter-summary">顯示 <strong id="adjustment-visible-count">{{ adjustments|length }}</strong> / {{ adjustments|length }} 筆紀錄</p>
   <div class="table-wrap"><table id="strategy-adjustment-table">
-    <thead><tr><th>版本</th><th>時間</th><th>策略</th><th>階段</th><th>調整內容</th><th>假設／原因</th><th class="right">結果</th><th></th></tr></thead>
-    <tbody>{% for item in adjustments %}{% set log = item.log %}<tr data-recorded-date="{{ item.recorded_date }}" data-strategy="{{ log.strategy_family }}" data-timeframe="{{ log.timeframe }}" data-version="{{ log.version_number }}">
-      <td><span class="tag">V{{ log.version_number }}</span><br><span class="muted">{% if item.parent_version %}基於 V{{ item.parent_version }}{% else %}基準版本{% endif %}</span></td>
+    <thead><tr><th>版本</th><th>建立時間</th><th>策略</th><th>策略參數</th><th>調整內容</th><th>假設／原因</th><th class="right">最近實驗</th><th></th></tr></thead>
+    <tbody>{% for item in adjustments %}{% set version = item.version %}{% set run = item.latest_run %}<tr data-recorded-date="{{ item.recorded_date }}" data-strategy="{{ version.strategy_family }}" data-timeframe="{{ version.timeframe }}" data-version="{{ version.version_number }}">
+      <td><span class="tag">V{{ version.version_number }}</span><br><span class="muted">{% if item.parent_version %}基於 V{{ item.parent_version }}{% else %}基準版本{% endif %}</span></td>
       <td class="mono">{{ item.created_at }}</td>
-      <td><strong>{{ log.symbol }} {{ log.timeframe }}</strong><br><span class="muted">{{ item.strategy_label }}</span></td>
-      <td><span class="tag">{{ item.stage_label }}</span></td>
+      <td><strong>{{ version.symbol }} {{ version.timeframe }}</strong><br><span class="muted">{{ item.strategy_label }} · {{ item.experiment_count }} 次實驗</span></td>
+      <td class="mono">{% if version.fast_period is not none %}SMA {{ version.fast_period }}/{{ version.slow_period }} · {% endif %}SL {{ "%.1f"|format((version.stop_loss_pct or 0) * 100) }}% · TP {{ "%.1f"|format((version.take_profit_pct or 0) * 100) }}% · {{ "%.1f"|format(version.leverage) }}x</td>
       <td>{% if item.changes %}{% for change in item.changes %}<div><strong>{{ change.label }}</strong>：<span class="muted">{{ change.before }}</span> → {{ change.after }}</div>{% endfor %}{% else %}<span class="tag">建立基準設定</span>{% endif %}</td>
-      <td>{{ log.hypothesis or "未填寫" }}</td>
-      <td class="right mono"><span class="{{ 'positive' if log.total_return >= 0 else 'negative' }}">{{ "%+.2f"|format(log.total_return * 100) }}%</span><br><span class="muted">DD {{ "%.2f"|format(log.maximum_drawdown * 100) }}% · {{ log.number_of_trades }} trades</span></td>
-      <td class="right">{% if log.stage != "development" %}<a class="small-link" href="{{ item.development_url }}">載入 Development 草稿</a>{% elif log.run_key in pending_run_keys %}<a class="small-link" href="/strategy-optimizations">已標記</a>{% else %}<form action="/strategy-optimizations/enqueue" method="post"><input type="hidden" name="run_key" value="{{ log.run_key }}"><button class="small-action" type="submit">交給 Skill 優化</button></form>{% endif %}</td>
+      <td>{{ version.hypothesis or "未填寫" }}</td>
+      <td class="right mono"><span class="tag">{{ item.latest_stage_label }}</span> <span class="{{ 'positive' if run.total_return >= 0 else 'negative' }}">{{ "%+.2f"|format(run.total_return * 100) }}%</span><br><span class="muted">DD {{ "%.2f"|format(run.maximum_drawdown * 100) }}% · {{ run.number_of_trades }} trades</span></td>
+      <td class="right">{% if item.development_run %}{% if item.development_run.run_key in pending_run_keys %}<a class="small-link" href="/strategy-optimizations">已標記</a>{% else %}<form action="/strategy-optimizations/enqueue" method="post"><input type="hidden" name="run_key" value="{{ item.development_run.run_key }}"><button class="small-action" type="submit">交給 Skill 優化</button></form>{% endif %}{% else %}<a class="small-link" href="{{ item.development_url }}">載入 Development 草稿</a>{% endif %}</td>
     </tr>{% endfor %}</tbody>
   </table></div>
   <p class="empty" id="adjustment-filter-empty" hidden>沒有符合篩選條件的策略調整紀錄。</p>
@@ -98,8 +98,8 @@
 </section>
 
 <section class="panel" id="backtest-history">
-  <div class="section-head"><div><p class="eyebrow">EXPERIMENTS</p><h2>回測與策略調整紀錄</h2></div><span>相同設定與資料不重複新增</span></div>
-  <p class="form-note">每次只調整少量參數並先寫下假設。Out-of-Sample 結果一旦用來調參，就不再是未見資料。</p>
+  <div class="section-head"><div><p class="eyebrow">EXPERIMENTS</p><h2>回測實驗紀錄</h2></div><span>相同設定與資料不重複新增</span></div>
+  <p class="form-note">相同策略版本可以使用不同日期、研究階段與市場資料反覆測試。Out-of-Sample 結果一旦用來調參，就不再是未見資料。</p>
   {% if history %}
   <form class="history-filters" id="history-filters" data-persist-key="quant-history-filters">
     <label>紀錄開始日期<input name="recorded_from" type="date"></label>

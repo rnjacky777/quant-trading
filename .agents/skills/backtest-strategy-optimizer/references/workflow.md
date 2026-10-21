@@ -18,16 +18,17 @@ identifier.
 
 ## Interpretation
 
-- `list` returns version-scoped identifiers and aggregate metrics.
+- `list` returns each strategy version and its associated experiment runs.
 - `queue` returns versions marked in the Dashboard; `optimize-request` writes
   the outcome back to the optimization log page.
 - `analyze` reproduces the selected run from its exact candle fingerprint and
   returns one recommendation or a reason to stop.
 - `optimize` refuses non-Development versions and missing or changed datasets.
 - `optimize` saves at most one controlled candidate per invocation. Identical
-  settings reuse the existing run rather than creating a duplicate version.
-- `previous_run_key` preserves the selected parent even when it is not the
-  latest version.
+  strategy parameters reuse the strategy version; identical experiment inputs
+  reuse the existing run.
+- `strategy_key` identifies parameter identity. `run_key` identifies exact
+  dates, data fingerprint, research stage, costs, cash, and strategy settings.
 
 ## Review
 

@@ -253,6 +253,57 @@ def test_validation_version_can_be_loaded_as_development_branch(
     assert "Development 分支尚未建立" in draft.text
 
 
+def test_market_period_and_research_stage_do_not_create_strategy_versions(
+    tmp_path, monkeypatch
+) -> None:
+    database = tmp_path / "market.sqlite3"
+    _seed(database)
+    monkeypatch.setenv("QUANT_DB_PATH", str(database))
+    client = TestClient(app)
+    common = {
+        "symbol": "BTC/USDT",
+        "timeframe": "1d",
+        "strategy": "sma",
+        "fast": 5,
+        "slow": 20,
+    }
+
+    development = client.get(
+        "/backtests/run",
+        params={
+            **common,
+            "since": "1970-01-01",
+            "until": "1970-03-01",
+            "stage": "development",
+        },
+    )
+    validation = client.get(
+        "/backtests/run",
+        params={
+            **common,
+            "since": "1970-03-01",
+            "until": "1970-04-01",
+            "stage": "validation",
+        },
+    )
+
+    assert development.status_code == 200
+    assert validation.status_code == 200
+    repository = BacktestRunRepository(database)
+    runs = repository.list_recent()
+    versions = repository.list_strategy_versions()
+    assert len(runs) == 2
+    assert len(versions) == 1
+    assert {run.strategy_key for run in runs} == {versions[0].strategy_key}
+    assert "已建立策略版本 V1" in development.text
+    assert "沿用 V1" in validation.text
+
+    dashboard = client.get("/")
+    assert 'id="adjustment-visible-count">1</strong> / 1 筆紀錄' in dashboard.text
+    assert 'id="history-visible-count">2</strong> / 2 筆紀錄' in dashboard.text
+    assert "2 次實驗" in dashboard.text
+
+
 def test_dashboard_downloads_and_deletes_a_scoped_dataset(tmp_path, monkeypatch) -> None:
     database = tmp_path / "market.sqlite3"
     monkeypatch.setenv("QUANT_DB_PATH", str(database))

@@ -41,10 +41,30 @@ class BacktestRun:
     exposure: float
     fees: float
     slippage: float
+    strategy_key: str | None = None
+
+
+@dataclass(frozen=True)
+class StrategyVersion:
+    strategy_key: str
+    created_at_ms: int
+    version_number: int
+    previous_strategy_key: str | None
+    strategy_family: str
+    symbol: str
+    timeframe: str
+    fast_period: int | None
+    slow_period: int | None
+    stop_loss_pct: float | None
+    take_profit_pct: float | None
+    leverage: float
+    hypothesis: str
 
 
 @dataclass(frozen=True)
 class StrategyAdjustmentLog:
+    """Legacy per-run audit record kept for backwards compatibility."""
+
     adjustment_key: str
     created_at_ms: int
     run_key: str
@@ -69,6 +89,7 @@ class StrategyAdjustmentLog:
 class SavedBacktestRun:
     run: BacktestRun
     created: bool
+    strategy_created: bool = False
 
 
 class BacktestRunRepository:
@@ -109,7 +130,32 @@ class BacktestRunRepository:
                 number_of_trades INTEGER NOT NULL,
                 exposure REAL NOT NULL,
                 fees REAL NOT NULL,
-                slippage REAL NOT NULL
+                slippage REAL NOT NULL,
+                strategy_key TEXT
+            )
+        """)
+        run_columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(backtest_runs)").fetchall()
+        }
+        if "strategy_key" not in run_columns:
+            connection.execute("ALTER TABLE backtest_runs ADD COLUMN strategy_key TEXT")
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS strategy_versions (
+                strategy_key TEXT PRIMARY KEY,
+                created_at_ms INTEGER NOT NULL,
+                version_number INTEGER NOT NULL,
+                previous_strategy_key TEXT,
+                strategy_family TEXT NOT NULL,
+                symbol TEXT NOT NULL,
+                timeframe TEXT NOT NULL,
+                fast_period INTEGER,
+                slow_period INTEGER,
+                stop_loss_pct REAL,
+                take_profit_pct REAL,
+                leverage REAL NOT NULL,
+                hypothesis TEXT NOT NULL,
+                UNIQUE(symbol, timeframe, strategy_family, version_number)
             )
         """)
         connection.execute("""
@@ -130,19 +176,20 @@ class BacktestRunRepository:
                 number_of_trades INTEGER NOT NULL
             )
         """)
-        columns = {
+        adjustment_columns = {
             row["name"]
             for row in connection.execute(
                 "PRAGMA table_info(strategy_adjustment_logs)"
             ).fetchall()
         }
-        if "version_number" not in columns:
+        if "version_number" not in adjustment_columns:
             connection.execute(
                 "ALTER TABLE strategy_adjustment_logs "
                 "ADD COLUMN version_number INTEGER NOT NULL DEFAULT 0"
             )
+        self._backfill_strategy_versions(connection)
         self._backfill_adjustment_logs(connection)
-        self._renumber_adjustment_versions(connection)
+        self._sync_adjustment_versions(connection)
         return connection
 
     def save(
@@ -182,6 +229,17 @@ class BacktestRunRepository:
         signal_candles: list[Candle] | None = None,
     ) -> SavedBacktestRun:
         fingerprint = _fingerprint(signal_candles or candles)
+        family = "sma" if fast_period is not None else "buy-hold"
+        strategy_key = _strategy_key(
+            result.symbol,
+            result.timeframe,
+            family,
+            fast_period,
+            slow_period,
+            config.stop_loss_pct,
+            config.take_profit_pct,
+            config.leverage,
+        )
         identity = json.dumps(
             {
                 "strategy": result.strategy_name,
@@ -234,6 +292,7 @@ class BacktestRunRepository:
             exposure=metrics.exposure,
             fees=metrics.fees,
             slippage=metrics.slippage,
+            strategy_key=strategy_key,
         )
         with closing(self._connect()) as connection:
             with connection:
@@ -242,19 +301,28 @@ class BacktestRunRepository:
                 ).fetchone()
                 if existing is not None:
                     return SavedBacktestRun(
-                        run=BacktestRun(**dict(existing)),
-                        created=False,
+                        run=BacktestRun(**dict(existing)), created=False
                     )
                 previous = self._comparison_run(connection, run, base_run_key)
+                strategy_created = connection.execute(
+                    "SELECT 1 FROM strategy_versions WHERE strategy_key=?",
+                    (strategy_key,),
+                ).fetchone() is None
+                version = self._ensure_strategy_version(
+                    connection, run, family, base_run_key
+                )
                 columns = tuple(vars(run))
-                placeholders = ", ".join("?" for _ in columns)
                 connection.execute(
                     f"INSERT INTO backtest_runs ({', '.join(columns)}) "
-                    f"VALUES ({placeholders})",
+                    f"VALUES ({', '.join('?' for _ in columns)})",
                     tuple(vars(run).values()),
                 )
-                self._insert_adjustment_log(connection, run, previous)
-        return SavedBacktestRun(run=run, created=True)
+                self._insert_adjustment_log(connection, run, previous, version)
+        return SavedBacktestRun(
+            run=run,
+            created=True,
+            strategy_created=strategy_created,
+        )
 
     def list_recent(self, limit: int = 20) -> list[BacktestRun]:
         if not 1 <= limit <= 100:
@@ -265,6 +333,62 @@ class BacktestRunRepository:
                 (limit,),
             ).fetchall()
         return [BacktestRun(**dict(row)) for row in rows]
+
+    def list_strategy_versions(self, limit: int = 100) -> list[StrategyVersion]:
+        if not 1 <= limit <= 500:
+            raise ValueError("invalid strategy version limit")
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                "SELECT * FROM strategy_versions "
+                "ORDER BY created_at_ms DESC, version_number DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [StrategyVersion(**dict(row)) for row in rows]
+
+    def get_strategy_version(self, strategy_key: str) -> StrategyVersion | None:
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                "SELECT * FROM strategy_versions WHERE strategy_key=?",
+                (strategy_key,),
+            ).fetchone()
+        return StrategyVersion(**dict(row)) if row is not None else None
+
+    def get_strategy_version_for_run(self, run_key: str) -> StrategyVersion | None:
+        with closing(self._connect()) as connection:
+            row = connection.execute("""
+                SELECT version.* FROM strategy_versions AS version
+                JOIN backtest_runs AS run ON run.strategy_key=version.strategy_key
+                WHERE run.run_key=?
+            """, (run_key,)).fetchone()
+        return StrategyVersion(**dict(row)) if row is not None else None
+
+    def list_runs_for_strategy(
+        self, strategy_key: str, limit: int = 100
+    ) -> list[BacktestRun]:
+        if not 1 <= limit <= 500:
+            raise ValueError("invalid strategy run limit")
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                "SELECT * FROM backtest_runs WHERE strategy_key=? "
+                "ORDER BY created_at_ms DESC LIMIT ?",
+                (strategy_key, limit),
+            ).fetchall()
+        return [BacktestRun(**dict(row)) for row in rows]
+
+    def get_latest_run_for_strategy(
+        self, strategy_key: str, stage: str | None = None
+    ) -> BacktestRun | None:
+        query = "SELECT * FROM backtest_runs WHERE strategy_key=?"
+        params: tuple[object, ...]
+        if stage is None:
+            params = (strategy_key,)
+        else:
+            query += " AND stage=?"
+            params = (strategy_key, stage)
+        query += " ORDER BY created_at_ms DESC LIMIT 1"
+        with closing(self._connect()) as connection:
+            row = connection.execute(query, params).fetchone()
+        return BacktestRun(**dict(row)) if row is not None else None
 
     def list_adjustments(self, limit: int = 50) -> list[StrategyAdjustmentLog]:
         if not 1 <= limit <= 200:
@@ -285,6 +409,83 @@ class BacktestRunRepository:
         return BacktestRun(**dict(row)) if row is not None else None
 
     @classmethod
+    def _backfill_strategy_versions(cls, connection: sqlite3.Connection) -> None:
+        rows = connection.execute(
+            "SELECT * FROM backtest_runs ORDER BY created_at_ms ASC, run_key ASC"
+        ).fetchall()
+        with connection:
+            for row in rows:
+                run = BacktestRun(**dict(row))
+                family = "sma" if run.fast_period is not None else "buy-hold"
+                key = _strategy_key(
+                    run.symbol,
+                    run.timeframe,
+                    family,
+                    run.fast_period,
+                    run.slow_period,
+                    run.stop_loss_pct,
+                    run.take_profit_pct,
+                    run.leverage,
+                )
+                existing = connection.execute(
+                    "SELECT 1 FROM strategy_versions WHERE strategy_key=?", (key,)
+                ).fetchone()
+                if existing is None:
+                    previous_key = cls._migration_previous_strategy_key(
+                        connection, run, family
+                    )
+                    version_number = connection.execute("""
+                        SELECT COALESCE(MAX(version_number), 0) + 1
+                        FROM strategy_versions
+                        WHERE symbol=? AND timeframe=? AND strategy_family=?
+                    """, (run.symbol, run.timeframe, family)).fetchone()[0]
+                    connection.execute(
+                        "INSERT INTO strategy_versions VALUES "
+                        "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        (
+                            key,
+                            run.created_at_ms,
+                            int(version_number),
+                            previous_key,
+                            family,
+                            run.symbol,
+                            run.timeframe,
+                            run.fast_period,
+                            run.slow_period,
+                            run.stop_loss_pct,
+                            run.take_profit_pct,
+                            run.leverage,
+                            run.note,
+                        ),
+                    )
+                connection.execute(
+                    "UPDATE backtest_runs SET strategy_key=? WHERE run_key=?",
+                    (key, run.run_key),
+                )
+
+    @staticmethod
+    def _migration_previous_strategy_key(
+        connection: sqlite3.Connection, run: BacktestRun, family: str
+    ) -> str | None:
+        adjustment = connection.execute(
+            "SELECT previous_run_key FROM strategy_adjustment_logs WHERE run_key=?",
+            (run.run_key,),
+        ).fetchone()
+        if adjustment is not None and adjustment["previous_run_key"]:
+            previous = connection.execute(
+                "SELECT strategy_key FROM backtest_runs WHERE run_key=?",
+                (adjustment["previous_run_key"],),
+            ).fetchone()
+            if previous is not None and previous["strategy_key"]:
+                return str(previous["strategy_key"])
+        latest = connection.execute("""
+            SELECT strategy_key FROM strategy_versions
+            WHERE symbol=? AND timeframe=? AND strategy_family=?
+            ORDER BY version_number DESC LIMIT 1
+        """, (run.symbol, run.timeframe, family)).fetchone()
+        return str(latest["strategy_key"]) if latest is not None else None
+
+    @classmethod
     def _backfill_adjustment_logs(cls, connection: sqlite3.Connection) -> None:
         rows = connection.execute(
             "SELECT * FROM backtest_runs ORDER BY created_at_ms ASC"
@@ -300,28 +501,33 @@ class BacktestRunRepository:
                     (run.run_key,),
                 ).fetchone()
                 if exists is None:
+                    version_row = connection.execute(
+                        "SELECT * FROM strategy_versions WHERE strategy_key=?",
+                        (run.strategy_key,),
+                    ).fetchone()
+                    if version_row is None:
+                        raise ValueError("strategy version migration failed")
                     cls._insert_adjustment_log(
-                        connection, run, previous_by_series.get(series)
+                        connection,
+                        run,
+                        previous_by_series.get(series),
+                        StrategyVersion(**dict(version_row)),
                     )
                 previous_by_series[series] = run
 
     @staticmethod
-    def _renumber_adjustment_versions(connection: sqlite3.Connection) -> None:
-        rows = connection.execute("""
-            SELECT adjustment_key, symbol, timeframe, strategy_family
-            FROM strategy_adjustment_logs
-            ORDER BY created_at_ms ASC, adjustment_key ASC
-        """).fetchall()
-        counters: dict[tuple[str, str, str], int] = {}
+    def _sync_adjustment_versions(connection: sqlite3.Connection) -> None:
         with connection:
-            for row in rows:
-                series = (row["symbol"], row["timeframe"], row["strategy_family"])
-                counters[series] = counters.get(series, 0) + 1
-                connection.execute(
-                    "UPDATE strategy_adjustment_logs SET version_number=? "
-                    "WHERE adjustment_key=?",
-                    (counters[series], row["adjustment_key"]),
-                )
+            connection.execute("""
+                UPDATE strategy_adjustment_logs
+                SET version_number = COALESCE((
+                    SELECT version.version_number
+                    FROM backtest_runs AS run
+                    JOIN strategy_versions AS version
+                      ON version.strategy_key=run.strategy_key
+                    WHERE run.run_key=strategy_adjustment_logs.run_key
+                ), version_number)
+            """)
 
     @staticmethod
     def _comparison_run(
@@ -360,25 +566,77 @@ class BacktestRunRepository:
         return BacktestRun(**dict(row)) if row is not None else None
 
     @staticmethod
+    def _ensure_strategy_version(
+        connection: sqlite3.Connection,
+        run: BacktestRun,
+        family: str,
+        base_run_key: str | None,
+    ) -> StrategyVersion:
+        existing = connection.execute(
+            "SELECT * FROM strategy_versions WHERE strategy_key=?",
+            (run.strategy_key,),
+        ).fetchone()
+        if existing is not None:
+            return StrategyVersion(**dict(existing))
+        previous_key: str | None = None
+        if base_run_key:
+            base = connection.execute(
+                "SELECT strategy_key FROM backtest_runs WHERE run_key=?",
+                (base_run_key,),
+            ).fetchone()
+            if base is None:
+                raise ValueError("selected base strategy version does not exist")
+            previous_key = base["strategy_key"]
+        if previous_key is None:
+            latest = connection.execute("""
+                SELECT strategy_key FROM strategy_versions
+                WHERE symbol=? AND timeframe=? AND strategy_family=?
+                ORDER BY version_number DESC LIMIT 1
+            """, (run.symbol, run.timeframe, family)).fetchone()
+            previous_key = latest["strategy_key"] if latest is not None else None
+        version_number = connection.execute("""
+            SELECT COALESCE(MAX(version_number), 0) + 1
+            FROM strategy_versions
+            WHERE symbol=? AND timeframe=? AND strategy_family=?
+        """, (run.symbol, run.timeframe, family)).fetchone()[0]
+        version = StrategyVersion(
+            strategy_key=str(run.strategy_key),
+            created_at_ms=run.created_at_ms,
+            version_number=int(version_number),
+            previous_strategy_key=previous_key,
+            strategy_family=family,
+            symbol=run.symbol,
+            timeframe=run.timeframe,
+            fast_period=run.fast_period,
+            slow_period=run.slow_period,
+            stop_loss_pct=run.stop_loss_pct,
+            take_profit_pct=run.take_profit_pct,
+            leverage=run.leverage,
+            hypothesis=run.note,
+        )
+        columns = tuple(vars(version))
+        connection.execute(
+            f"INSERT INTO strategy_versions ({', '.join(columns)}) "
+            f"VALUES ({', '.join('?' for _ in columns)})",
+            tuple(vars(version).values()),
+        )
+        return version
+
+    @staticmethod
     def _insert_adjustment_log(
         connection: sqlite3.Connection,
         run: BacktestRun,
         previous: BacktestRun | None,
+        version: StrategyVersion,
     ) -> None:
-        family = "sma" if run.fast_period is not None else "buy-hold"
         changes = _parameter_changes(previous, run)
-        version_number = connection.execute("""
-            SELECT COALESCE(MAX(version_number), 0) + 1
-            FROM strategy_adjustment_logs
-            WHERE symbol=? AND timeframe=? AND strategy_family=?
-        """, (run.symbol, run.timeframe, family)).fetchone()[0]
         log = StrategyAdjustmentLog(
             adjustment_key=sha256(f"adjustment:{run.run_key}".encode()).hexdigest(),
             created_at_ms=run.created_at_ms,
             run_key=run.run_key,
             previous_run_key=previous.run_key if previous else None,
-            strategy_family=family,
-            version_number=int(version_number),
+            strategy_family=version.strategy_family,
+            version_number=version.version_number,
             symbol=run.symbol,
             timeframe=run.timeframe,
             stage=run.stage,
@@ -394,6 +652,33 @@ class BacktestRunRepository:
             f"VALUES ({', '.join('?' for _ in columns)})",
             tuple(vars(log).values()),
         )
+
+
+def _strategy_key(
+    symbol: str,
+    timeframe: str,
+    family: str,
+    fast_period: int | None,
+    slow_period: int | None,
+    stop_loss_pct: float | None,
+    take_profit_pct: float | None,
+    leverage: float,
+) -> str:
+    identity = json.dumps(
+        {
+            "symbol": symbol,
+            "timeframe": timeframe,
+            "family": family,
+            "fast_period": fast_period,
+            "slow_period": slow_period,
+            "stop_loss_pct": stop_loss_pct,
+            "take_profit_pct": take_profit_pct,
+            "leverage": leverage,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return sha256(identity.encode()).hexdigest()
 
 
 def _fingerprint(candles: list[Candle]) -> str:
@@ -412,18 +697,11 @@ def _parameter_changes(
     previous: BacktestRun | None, current: BacktestRun
 ) -> dict[str, dict[str, object]]:
     fields = (
-        "since_ms",
-        "until_ms",
         "fast_period",
         "slow_period",
-        "initial_cash",
-        "fee_bps",
-        "slippage_bps",
         "stop_loss_pct",
         "take_profit_pct",
         "leverage",
-        "stage",
-        "data_fingerprint",
     )
     if previous is None:
         return {}

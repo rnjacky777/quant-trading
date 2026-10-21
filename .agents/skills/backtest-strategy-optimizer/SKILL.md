@@ -17,8 +17,10 @@ before creating a new version.
 - If the user supplied a version or run key, resolve that exact result.
 - If selection is ambiguous, run `list` and ask which result to use. Do not
   silently select the highest-return result.
-- Treat `run_key` as the stable identifier. Version numbers are scoped to
-  symbol, timeframe, and strategy family.
+- Treat `strategy_key` as the stable strategy identifier and `run_key` as the
+  exact experiment identifier. Version numbers are scoped to symbol, timeframe,
+  and strategy family. Select the Development `run_key` whose evidence should
+  drive the optimization.
 
 ## Analyze before changing
 
@@ -30,9 +32,11 @@ Development result. Never tune a Validation or Out-of-Sample result.
 ## Create the child version
 
 When a controlled candidate exists and the request authorizes optimization,
-run `optimize` with the selected `run_key` and a concise hypothesis. The script
+run `optimize` with the selected Development `run_key` and a concise hypothesis. The script
 reproduces the base dataset, changes only the recommended fields, runs the
-candidate, and saves it with `base_run_key` so the log records `Vn based on Vm`.
+candidate, and saves it with `base_run_key`. A new version is created only when
+the strategy or risk parameters change; dates, stages, data, cash, fees, and
+slippage remain experiment properties.
 
 Report both base and candidate metrics. A saved candidate is an experiment,
 not a promoted strategy. Do not describe it as improved unless the relevant
