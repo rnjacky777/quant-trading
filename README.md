@@ -36,6 +36,20 @@ pytest
 
 `GET /health` and `GET /candles?symbol=BTC%2FUSDT&timeframe=4h&limit=100` are read-only. The API does not trigger downloads.
 
+Open `http://127.0.0.1:8000/` for the research dashboard. It shows available
+market data and provides a form for running SMA trend or buy-and-hold backtests.
+Results include the equity curve, performance metrics, and trade history. The
+dashboard can download public closed candles and delete one symbol/timeframe
+dataset after browser confirmation. It is research-only and cannot submit paper
+or live orders.
+
+Successful dashboard backtests are stored as reproducible experiment records in
+SQLite. Each record includes the research stage, data fingerprint, SMA settings,
+fees, slippage, fixed stop loss, fixed take profit, leverage, metrics, and notes.
+Identical settings on identical data reuse the existing version without changing
+its creation time, and the dashboard shows a duplicate warning. Fixed stops and targets use candle high/low; if both are touched in
+one candle, the conservative stop-first assumption is used.
+
 ## Baseline backtest
 
 The first backtest is a long/cash SMA trend baseline. A signal uses a completed candle and executes at the next candle's open. Fees and adverse slippage are charged on entry and exit. Strategy code emits only BUY/SELL/HOLD; allocation remains outside the strategy.
@@ -51,6 +65,20 @@ python -m scripts.backtest --strategy buy-hold --symbol BTC/USDT --timeframe 1d 
 ```
 
 The command reports total return, CAGR, Sharpe, Sortino, maximum drawdown, win rate, profit factor, average win/loss, trade count, exposure, fees, and modeled slippage. It rejects missing candle intervals rather than silently backtesting incomplete data. The final open position is liquidated at the last close with costs.
+
+## Perpetual futures accounting
+
+The backtest core accepts explicit `FundingRate`, `MarkPriceCandle`, and
+Binance-style `MarginBracket` datasets for isolated-margin perpetual tests.
+Perpetual mode refuses to run unless all three inputs are present. Funding is
+settled at the recorded timestamp, liquidation uses Mark Price and maintenance
+margin brackets, and results report net funding, liquidation fees/count, and
+maximum margin ratio. `DerivativesRepository` stores these inputs and versioned
+bracket snapshots in SQLite for reproducible runs.
+
+The dashboard currently runs spot datasets while the authenticated Binance
+USD-M bracket synchronizer is pending. It does not substitute spot close prices
+or zero funding for a futures result.
 
 ## Roadmap
 

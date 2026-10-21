@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}回測結果 · Quant Console{% endblock %}
+{% block content %}
+<section class="result-title">
+  <div><a class="back" href="/">← 返回總覽</a><p class="eyebrow">BACKTEST RESULT</p><h1>{{ result.symbol }} <span>{{ result.timeframe }}</span></h1><p>{{ result.strategy_name }} · {{ first_date }} 至 {{ last_date }} · {{ "{:,}".format(candle_count) }} 根 K 線</p></div>
+  <div class="return {{ 'positive' if metrics.total_return >= 0 else 'negative' }}"><span>總報酬</span><strong>{{ "%+.2f"|format(metrics.total_return * 100) }}%</strong></div>
+</section>
+
+<section class="grid stats metrics">
+  <article><span>最終資產</span><strong>{{ "{:,.2f}".format(result.final_equity) }}</strong></article>
+  <article><span>CAGR</span><strong>{{ "%.2f"|format(metrics.cagr * 100) }}%</strong></article>
+  <article><span>Sharpe</span><strong>{{ "%.2f"|format(metrics.sharpe_ratio) }}</strong></article>
+  <article><span>最大回撤</span><strong class="negative">{{ "%.2f"|format(metrics.maximum_drawdown * 100) }}%</strong></article>
+</section>
+
+<section class="grid stats risk-summary">
+  <article><span>止損</span><strong>{{ "%.2f"|format(values.stop_loss_pct) }}%</strong></article>
+  <article><span>止盈</span><strong>{{ "%.2f"|format(values.take_profit_pct) }}%</strong></article>
+  <article><span>槓桿</span><strong>{{ "%.1f"|format(values.leverage) }}x</strong></article>
+  <article><span>研究階段</span><strong>{{ values.stage }}</strong></article>
+</section>
+{% if saved_duplicate %}
+<div class="notice warning"><strong>重複設定：</strong>完全相同的資料、策略參數、風險設定與研究階段已存在。此次沿用{% if saved_version %} V{{ saved_version }}{% else %}既有紀錄{% endif %}，沒有建立新版本。</div>
+{% else %}
+<p class="saved-note">已建立{% if saved_version %}策略版本 V{{ saved_version }} · {% endif %}{{ values.stage }} · 實驗 <span class="mono">{{ saved_run.run_key[:10] }}</span>{% if values.note %} · {{ values.note }}{% endif %}</p>
+{% endif %}
+
+{% if values.stage == "development" %}
+<section class="panel optimization-cta">
+  <div><p class="eyebrow">SKILL OPTIMIZATION</p><h2>將 V{{ saved_version or "?" }} 交給 Skill 優化</h2><p>此版本已儲存為 Development，可以直接加入策略優化佇列。</p></div>
+  <form action="/strategy-optimizations/enqueue" method="post">
+    <input type="hidden" name="run_key" value="{{ saved_run.run_key }}">
+    <label>優化目標<input name="objective" type="text" maxlength="300" placeholder="例如：降低最大回撤並維持報酬"></label>
+    <button type="submit">交給 Skill 優化</button>
+  </form>
+</section>
+{% endif %}
+
+<section class="panel advisor-panel">
+  <div class="section-head"><div><p class="eyebrow">RESEARCH ADVISOR</p><h2>下一版研究建議</h2></div><span>{{ advice.decision }}</span></div>
+  <h3>{{ advice.headline }}</h3>
+  <p>{{ advice.explanation }}</p>
+  <div class="advisor-evidence">{% for item in advice.evidence %}<span class="tag">{{ item }}</span>{% endfor %}</div>
+  <p><strong>驗證方式：</strong>{{ advice.validation_plan }}</p>
+  {% if advice_url %}<a class="button" href="{{ advice_url }}">載入下一版候選設定</a>{% endif %}
+</section>
+
+<section class="panel chart-panel">
+  <div class="section-head"><div><p class="eyebrow">EQUITY</p><h2>資產曲線</h2></div><span>起始 {{ "{:,.0f}".format(result.initial_cash) }} USDT</span></div>
+  <svg class="chart" viewBox="0 0 900 260" preserveAspectRatio="none" role="img" aria-label="資產曲線"><polyline class="chart-line" points="{{ chart_points }}"/></svg>
+</section>
+
+<section class="panel">
+  <div class="section-head"><div><p class="eyebrow">METRICS</p><h2>績效指標</h2></div><span>已包含交易成本</span></div>
+  <div class="metric-list">
+    <div><span>Sortino</span><b>{{ "%.2f"|format(metrics.sortino_ratio) }}</b></div><div><span>勝率</span><b>{{ "%.2f"|format(metrics.win_rate * 100) }}%</b></div>
+    <div><span>Profit Factor</span><b>{{ "%.2f"|format(metrics.profit_factor) if metrics.profit_factor is not none else "∞" }}</b></div><div><span>交易次數</span><b>{{ metrics.number_of_trades }}</b></div>
+    <div><span>市場曝險</span><b>{{ "%.2f"|format(metrics.exposure * 100) }}%</b></div><div><span>手續費</span><b>{{ "%.2f"|format(metrics.fees) }}</b></div>
+    <div><span>滑價成本</span><b>{{ "%.2f"|format(metrics.slippage) }}</b></div><div><span>Funding 淨額</span><b>{{ "%+.2f"|format(metrics.net_funding) }}</b></div>
+    <div><span>強平費</span><b>{{ "%.2f"|format(metrics.liquidation_fees) }}</b></div><div><span>強平次數</span><b>{{ metrics.liquidation_count }}</b></div>
+    <div><span>最大保證金率</span><b>{{ "%.2f"|format(metrics.maximum_margin_ratio * 100) if metrics.maximum_margin_ratio is not none else "≥ 100%" }}{% if metrics.maximum_margin_ratio is not none %}%{% endif %}</b></div><div><span>平均獲利</span><b>{{ "%.2f"|format(metrics.average_win) }}</b></div>
+    <div><span>平均虧損</span><b>{{ "%.2f"|format(metrics.average_loss) }}</b></div>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="section-head"><div><p class="eyebrow">TRADES</p><h2>交易紀錄</h2></div><span>{{ result.trades|length }} 筆</span></div>
+  <div class="table-wrap"><table><thead><tr><th>進場</th><th>離場</th><th class="right">進場價</th><th class="right">止損</th><th class="right">止盈</th><th>離場原因</th><th class="right">槓桿</th><th class="right">Funding</th><th class="right">強平費</th><th class="right">PnL</th><th class="right">報酬</th></tr></thead><tbody>
+  {% for trade in result.trades %}<tr><td>{{ format_date(trade.entry_timestamp_ms) }}</td><td>{{ format_date(trade.exit_timestamp_ms) }}</td><td class="right mono">{{ "{:,.2f}".format(trade.entry_price) }}</td><td class="right mono">{{ "{:,.2f}".format(trade.stop_loss_price) if trade.stop_loss_price else "—" }}</td><td class="right mono">{{ "{:,.2f}".format(trade.take_profit_price) if trade.take_profit_price else "—" }}</td><td><span class="tag">{{ trade.exit_reason }}</span></td><td class="right mono">{{ "%.1f"|format(trade.leverage) }}x</td><td class="right mono">{{ "%+.2f"|format(trade.funding) }}</td><td class="right mono">{{ "%.2f"|format(trade.liquidation_fee) }}</td><td class="right mono {{ 'positive' if trade.pnl >= 0 else 'negative' }}">{{ "%+.2f"|format(trade.pnl) }}</td><td class="right mono">{{ "%+.2f"|format(trade.return_pct * 100) }}%</td></tr>{% endfor %}
+  </tbody></table></div>
+</section>
+{% endblock %}

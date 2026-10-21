@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}回測無法執行 · Quant Console{% endblock %}
+{% block content %}
+<section class="error-card">
+  <span>!</span><p class="eyebrow">BACKTEST STOPPED</p><h1>無法執行回測</h1><p>{{ message }}</p>
+  <form action="/data/download" method="post">
+    <input type="hidden" name="symbol" value="{{ values.symbol }}">
+    <input type="hidden" name="timeframe" value="{{ values.timeframe }}">
+    <input type="hidden" name="since" value="{{ values.since }}">
+    <input type="hidden" name="until" value="{{ values.until }}">
+    <input type="hidden" name="return_to" value="backtest">
+    <button class="button" type="submit">下載這段 K 線</button>
+  </form>
+  <a class="secondary-link" href="/">返回總覽</a>
+</section>
+{% endblock %}

@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}策略優化任務 · Quant Console{% endblock %}
+{% block content %}
+<section class="result-title"><div><a class="back" href="/">← 返回總覽</a><p class="eyebrow">OPTIMIZATION QUEUE</p><h1>策略優化任務</h1><p>Dashboard 標記版本，Agent Skill 分析並保存受控子版本。</p></div><div class="return"><span>待處理</span><strong>{{ pending|length }}</strong></div></section>
+
+{% if notice %}<div class="notice {{ notice_kind }}">{{ notice }}</div>{% endif %}
+
+<section class="panel">
+  <div class="section-head"><div><p class="eyebrow">PENDING</p><h2>等待 Skill 優化</h2></div><span>使用 $backtest-strategy-optimizer</span></div>
+  {% if pending %}<div class="table-wrap"><table><thead><tr><th>任務</th><th>基準版本</th><th>建立時間</th><th>優化目標</th><th>目前結果</th><th></th></tr></thead><tbody>
+  {% for item in pending %}{% set task=item.request %}{% set run=item.base %}<tr><td class="mono">#{{ task.request_id }}</td><td><strong>{{ run.symbol }} {{ run.timeframe }} · V{{ item.base_version }}</strong><br><span class="muted">{{ run.strategy_name }}</span></td><td class="mono">{{ item.requested_at }}</td><td>{{ task.objective or "由 Research Advisor 選擇一項受控變更" }}</td><td class="mono"><span class="{{ 'positive' if run.total_return >= 0 else 'negative' }}">{{ "%+.2f"|format(run.total_return * 100) }}%</span><br><span class="muted">DD {{ "%.2f"|format(run.maximum_drawdown * 100) }}%</span></td><td><form action="/strategy-optimizations/{{ task.request_id }}/cancel" method="post"><button class="delete-button" type="submit">取消</button></form></td></tr>{% endfor %}
+  </tbody></table></div>{% else %}<p class="empty">目前沒有待處理任務。可在總覽的策略調整紀錄標記版本。</p>{% endif %}
+</section>
+
+<section class="panel">
+  <div class="section-head"><div><p class="eyebrow">OPTIMIZATION LOG</p><h2>策略優化紀錄</h2></div><span>父版本 → 候選版本</span></div>
+  {% if history %}<div class="table-wrap"><table><thead><tr><th>任務</th><th>狀態</th><th>版本關係</th><th>調整內容</th><th>分析結論</th><th>驗證計畫</th><th>完成時間</th></tr></thead><tbody>
+  {% for item in history %}{% set task=item.request %}<tr><td class="mono">#{{ task.request_id }}</td><td><span class="tag">{{ task.status }}</span></td><td>{% if item.base %}<strong>{{ item.base.symbol }} {{ item.base.timeframe }}</strong><br>V{{ item.base_version }} → {% if item.candidate_version %}V{{ item.candidate_version }}{% else %}未建立{% endif %}{% else %}版本已不存在{% endif %}</td><td>{% if item.changes %}{% for change in item.changes %}<div>{{ change.label }} → <span class="mono">{{ change.value }}</span></div>{% endfor %}{% else %}—{% endif %}</td><td>{{ task.summary or task.error or task.decision or "—" }}</td><td>{{ task.validation_plan or "—" }}</td><td class="mono">{{ item.processed_at or "—" }}</td></tr>{% endfor %}
+  </tbody></table></div>{% else %}<p class="empty">尚無已完成的策略優化紀錄。</p>{% endif %}
+</section>
+{% endblock %}

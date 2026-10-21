@@ -2,7 +2,7 @@ from pathlib import Path
 from contextlib import closing
 import sqlite3
 
-from app.data.models import Candle, SYMBOLS, TIMEFRAMES_MS
+from app.data.models import Candle, CandleCoverage, SYMBOLS, TIMEFRAMES_MS
 
 
 class CandleRepository:
@@ -76,3 +76,29 @@ class CandleRepository:
                 ORDER BY timestamp_ms ASC
             """, (exchange, symbol, timeframe, since_ms, until_ms)).fetchall()
         return [Candle(**dict(row)) for row in rows]
+
+    def list_coverage(self, exchange: str) -> list[CandleCoverage]:
+        """Return available ranges without loading every candle into memory."""
+        with closing(self._connect()) as connection:
+            rows = connection.execute("""
+                SELECT symbol, timeframe, COUNT(*) AS candle_count,
+                       MIN(timestamp_ms) AS first_timestamp_ms,
+                       MAX(timestamp_ms) AS last_timestamp_ms
+                FROM candles
+                WHERE exchange=?
+                GROUP BY symbol, timeframe
+                ORDER BY symbol, timeframe
+            """, (exchange,)).fetchall()
+        return [CandleCoverage(**dict(row)) for row in rows]
+
+    def delete_dataset(self, exchange: str, symbol: str, timeframe: str) -> int:
+        """Delete one exchange/symbol/timeframe dataset and return its row count."""
+        if symbol not in SYMBOLS or timeframe not in TIMEFRAMES_MS:
+            raise ValueError("invalid candle dataset")
+        with closing(self._connect()) as connection:
+            with connection:
+                cursor = connection.execute(
+                    "DELETE FROM candles WHERE exchange=? AND symbol=? AND timeframe=?",
+                    (exchange, symbol, timeframe),
+                )
+        return cursor.rowcount

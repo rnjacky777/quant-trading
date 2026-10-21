@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Quant Console{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', path='/dashboard.css') }}">
+  <script src="{{ url_for('static', path='/dashboard.js') }}?v=12" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/">QUANT<span>CONSOLE</span></a>
+    <nav><a href="/">總覽</a><a href="/strategy-optimizations">優化任務</a><a href="/docs">API</a></nav>
+    <span class="mode">PAPER / RESEARCH</span>
+  </header>
+  <main>{% block content %}{% endblock %}</main>
+  <footer>所有日期均為 UTC。回測結果不代表未來績效。</footer>
+</body>
+</html>

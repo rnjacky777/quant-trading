@@ -8,6 +8,11 @@ class BacktestConfig:
     fee_bps: float = 10.0
     slippage_bps: float = 5.0
     position_fraction: float = 1.0
+    stop_loss_pct: float | None = None
+    take_profit_pct: float | None = None
+    leverage: float = 1.0
+    liquidation_fee_bps: float = 0.0
+    market_type: str = "spot"
 
     def __post_init__(self) -> None:
         if not isfinite(self.initial_cash) or self.initial_cash <= 0:
@@ -18,6 +23,18 @@ class BacktestConfig:
             raise ValueError("costs must be non-negative")
         if not isfinite(self.position_fraction) or not 0 < self.position_fraction <= 1:
             raise ValueError("position_fraction must be in (0, 1]")
+        for name, value in (
+            ("stop_loss_pct", self.stop_loss_pct),
+            ("take_profit_pct", self.take_profit_pct),
+        ):
+            if value is not None and (not isfinite(value) or not 0 < value < 1):
+                raise ValueError(f"{name} must be in (0, 1) or None")
+        if not isfinite(self.leverage) or not 1 <= self.leverage <= 10:
+            raise ValueError("leverage must be between 1 and 10")
+        if not isfinite(self.liquidation_fee_bps) or self.liquidation_fee_bps < 0:
+            raise ValueError("liquidation_fee_bps must be finite and non-negative")
+        if self.market_type not in {"spot", "perpetual"}:
+            raise ValueError("market_type must be spot or perpetual")
 
 
 @dataclass(frozen=True)
@@ -31,6 +48,12 @@ class Trade:
     return_pct: float
     fees: float
     slippage_cost: float
+    exit_reason: str
+    stop_loss_price: float | None
+    take_profit_price: float | None
+    leverage: float
+    funding: float = 0.0
+    liquidation_fee: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -55,6 +78,10 @@ class PerformanceMetrics:
     exposure: float
     fees: float
     slippage: float
+    net_funding: float
+    liquidation_fees: float
+    liquidation_count: int
+    maximum_margin_ratio: float
 
 
 @dataclass(frozen=True)

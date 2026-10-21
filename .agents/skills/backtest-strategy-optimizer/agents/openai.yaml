@@ -1,0 +1,6 @@
+interface:
+  display_name: "Backtest Strategy Optimizer"
+  short_description: "Create a controlled child version from a saved backtest"
+  default_prompt: "Use $backtest-strategy-optimizer to analyze a saved backtest version and create the next controlled experiment."
+policy:
+  allow_implicit_invocation: true

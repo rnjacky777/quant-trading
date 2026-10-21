@@ -11,6 +11,7 @@ def calculate_metrics(
     trades: list[Trade],
     initial_cash: float,
     timeframe: str,
+    maximum_margin_ratio: float = 0.0,
 ) -> PerformanceMetrics:
     if not equity_curve:
         raise ValueError("equity curve cannot be empty")
@@ -52,6 +53,10 @@ def calculate_metrics(
         exposure=sum(point.invested for point in equity_curve) / len(equity_curve),
         fees=sum(trade.fees for trade in trades),
         slippage=sum(trade.slippage_cost for trade in trades),
+        net_funding=sum(trade.funding for trade in trades),
+        liquidation_fees=sum(trade.liquidation_fee for trade in trades),
+        liquidation_count=sum(trade.exit_reason == "liquidation" for trade in trades),
+        maximum_margin_ratio=maximum_margin_ratio,
     )
 
 

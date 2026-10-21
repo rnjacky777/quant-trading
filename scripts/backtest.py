@@ -31,6 +31,9 @@ def main() -> None:
     parser.add_argument("--initial-cash", type=float, default=10_000)
     parser.add_argument("--fee-bps", type=float, default=10)
     parser.add_argument("--slippage-bps", type=float, default=5)
+    parser.add_argument("--stop-loss-pct", type=float, default=0)
+    parser.add_argument("--take-profit-pct", type=float, default=0)
+    parser.add_argument("--leverage", type=float, default=1)
     args = parser.parse_args()
 
     settings = Settings.from_env()
@@ -48,6 +51,9 @@ def main() -> None:
         initial_cash=args.initial_cash,
         fee_bps=args.fee_bps,
         slippage_bps=args.slippage_bps,
+        stop_loss_pct=args.stop_loss_pct / 100 if args.stop_loss_pct else None,
+        take_profit_pct=args.take_profit_pct / 100 if args.take_profit_pct else None,
+        leverage=args.leverage,
     )).run(candles, strategy)
     payload = {
         "strategy": result.strategy_name,
@@ -55,6 +61,11 @@ def main() -> None:
         "timeframe": result.timeframe,
         "initial_cash": result.initial_cash,
         "final_equity": result.final_equity,
+        "risk": {
+            "stop_loss_pct": args.stop_loss_pct,
+            "take_profit_pct": args.take_profit_pct,
+            "leverage": args.leverage,
+        },
         "metrics": _finite_dict(asdict(result.metrics)),
         "period": {
             "since_ms": candles[0].timestamp_ms,
