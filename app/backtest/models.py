@@ -13,8 +13,64 @@ class BacktestConfig:
     leverage: float = 1.0
     liquidation_fee_bps: float = 0.0
     market_type: str = "spot"
+    risk_per_trade: float | None = None
+    max_exposure_fraction: float = 1.0
+    exit_mode: str = "fixed"
+    stop_reentry_mode: str = "immediate"
+    trend_entry_buffer: float = 0.0
+    trailing_activation: float | None = None
+    trailing_distance: float | None = None
+    trailing_reentry_mode: str = "inherit"
+    risk_regime: str = "fixed"
+    higher_timeframe_filter: bool = False
+    intraday_entry: str = "breakout"
+    intraday_min_atr_fraction: float = 0.0
+    intraday_strong_close: bool = False
+    max_entries_per_day: int | None = None
+    max_holding_bars: int | None = None
 
     def __post_init__(self) -> None:
+        if type(self.intraday_strong_close) is not bool:
+            raise ValueError("intraday_strong_close must be boolean")
+        if not isfinite(self.intraday_min_atr_fraction) or not 0 <= self.intraday_min_atr_fraction < 1:
+            raise ValueError("invalid intraday minimum ATR")
+        if self.intraday_entry not in {"breakout", "pullback"}:
+            raise ValueError("invalid intraday_entry")
+        for value in (self.max_entries_per_day, self.max_holding_bars):
+            if value is not None and (type(value) is not int or value < 1):
+                raise ValueError("entry and holding limits must be positive integers")
+        if type(self.higher_timeframe_filter) is not bool:
+            raise ValueError("higher_timeframe_filter must be boolean")
+        if self.risk_regime not in {"fixed", "slow_slope", "loss_streak"}:
+            raise ValueError("invalid risk_regime")
+        if self.risk_regime != "fixed" and self.risk_per_trade is None:
+            raise ValueError("regime sizing requires a risk budget")
+        if self.trailing_reentry_mode not in {"inherit", "exit_high_breakout", "pullback_reclaim"}:
+            raise ValueError("invalid trailing_reentry_mode")
+        if self.trailing_reentry_mode != "inherit" and self.trailing_activation is None:
+            raise ValueError("trailing breakout reentry requires an enabled trailing stop")
+        if (self.trailing_activation is None) != (self.trailing_distance is None):
+            raise ValueError("trailing activation and distance must be configured together")
+        for value in (self.trailing_activation, self.trailing_distance):
+            if value is not None and (not isfinite(value) or not 0 < value < 1):
+                raise ValueError("trailing percentages must be in (0, 1)")
+        if self.trailing_activation is not None and (self.stop_loss_pct is None or (self.market_type == "spot" and self.leverage != 1)):
+            raise ValueError("trailing stop requires an initial stop and unlevered spot or validated perpetual inputs")
+        if not isfinite(self.trend_entry_buffer) or not 0 <= self.trend_entry_buffer < 1:
+            raise ValueError("trend_entry_buffer must be in [0, 1)")
+        if self.stop_reentry_mode not in {"immediate", "signal_reset"}:
+            raise ValueError("stop_reentry_mode must be immediate or signal_reset")
+        if self.exit_mode not in {"fixed", "signal"}:
+            raise ValueError("exit_mode must be fixed or signal")
+        if not isfinite(self.max_exposure_fraction) or not 0 < self.max_exposure_fraction <= 1:
+            raise ValueError("max_exposure_fraction must be in (0, 1]")
+        if self.risk_per_trade is not None:
+            if not isfinite(self.risk_per_trade) or not 0 < self.risk_per_trade <= 1:
+                raise ValueError("risk_per_trade must be in (0, 1]")
+            if self.leverage != 1 or self.market_type != "spot":
+                raise ValueError("risk-budget sizing currently requires unlevered spot mode")
+            if self.stop_loss_pct is None:
+                raise ValueError("risk-budget sizing requires a protective stop")
         if not isfinite(self.initial_cash) or self.initial_cash <= 0:
             raise ValueError("initial_cash must be positive")
         if not isfinite(self.fee_bps) or not isfinite(self.slippage_bps):
@@ -54,6 +110,7 @@ class Trade:
     leverage: float
     funding: float = 0.0
     liquidation_fee: float = 0.0
+    planned_risk: float = 0.0
 
 
 @dataclass(frozen=True)

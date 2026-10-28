@@ -5,9 +5,13 @@ import json
 from pathlib import Path
 import sqlite3
 from time import time
+from math import isclose
 
 from app.backtest.models import BacktestConfig, BacktestResult
-from app.data.models import Candle
+from app.backtest.configuration import saved_policy, strategy_family
+from app.backtest.research import ResearchPlanRepository
+from app.backtest.results import serialize_result, deserialize_result
+from app.data.models import Candle, TIMEFRAMES_MS
 
 
 @dataclass(frozen=True)
@@ -42,6 +46,8 @@ class BacktestRun:
     fees: float
     slippage: float
     strategy_key: str | None = None
+    policy_json: str = "{}"
+    research_plan_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -59,6 +65,7 @@ class StrategyVersion:
     take_profit_pct: float | None
     leverage: float
     hypothesis: str
+    policy_json: str = "{}"
 
 
 @dataclass(frozen=True)
@@ -187,6 +194,19 @@ class BacktestRunRepository:
                 "ALTER TABLE strategy_adjustment_logs "
                 "ADD COLUMN version_number INTEGER NOT NULL DEFAULT 0"
             )
+        for table, fields in {
+            "backtest_runs": {"policy_json": "'{}'", "research_plan_id": "''"},
+            "strategy_versions": {"policy_json": "'{}'"},
+        }.items():
+            columns = {row["name"] for row in connection.execute(f"PRAGMA table_info({table})")}
+            for field, default in fields.items():
+                if field not in columns:
+                    connection.execute(f"ALTER TABLE {table} ADD COLUMN {field} TEXT NOT NULL DEFAULT {default}")
+        connection.execute("""CREATE TABLE IF NOT EXISTS backtest_results (
+            run_key TEXT PRIMARY KEY, saved_at_ms INTEGER NOT NULL,
+            source TEXT NOT NULL, payload_json TEXT NOT NULL,
+            FOREIGN KEY(run_key) REFERENCES backtest_runs(run_key)
+        )""")
         self._backfill_strategy_versions(connection)
         self._backfill_adjustment_logs(connection)
         self._sync_adjustment_versions(connection)
@@ -203,6 +223,7 @@ class BacktestRunRepository:
         slow_period: int | None,
         base_run_key: str | None = None,
         signal_candles: list[Candle] | None = None,
+        research_plan_id: str = "",
     ) -> BacktestRun:
         return self.save_with_status(
             result=result,
@@ -214,6 +235,7 @@ class BacktestRunRepository:
             slow_period=slow_period,
             base_run_key=base_run_key,
             signal_candles=signal_candles,
+            research_plan_id=research_plan_id,
         ).run
 
     def save_with_status(
@@ -227,9 +249,15 @@ class BacktestRunRepository:
         slow_period: int | None,
         base_run_key: str | None = None,
         signal_candles: list[Candle] | None = None,
+        research_plan_id: str = "",
     ) -> SavedBacktestRun:
+        if stage not in {"development", "validation", "out_of_sample"}:
+            raise ValueError("invalid research stage")
+        if stage == "out_of_sample" and not research_plan_id:
+            raise ValueError("out_of_sample requires a preregistered research plan")
         fingerprint = _fingerprint(signal_candles or candles)
-        family = "sma" if fast_period is not None else "buy-hold"
+        family = strategy_family(result.strategy_name)
+        policy_json = saved_policy(config, result.strategy_name)
         strategy_key = _strategy_key(
             result.symbol,
             result.timeframe,
@@ -239,9 +267,9 @@ class BacktestRunRepository:
             config.stop_loss_pct,
             config.take_profit_pct,
             config.leverage,
+            policy_json,
         )
-        identity = json.dumps(
-            {
+        identity_values = {
                 "strategy": result.strategy_name,
                 "symbol": result.symbol,
                 "timeframe": result.timeframe,
@@ -249,15 +277,21 @@ class BacktestRunRepository:
                 "until": candles[-1].timestamp_ms,
                 "fast": fast_period,
                 "slow": slow_period,
-                "initial_cash": config.initial_cash,
-                "fee_bps": config.fee_bps,
-                "slippage_bps": config.slippage_bps,
-                "stop_loss_pct": config.stop_loss_pct,
-                "take_profit_pct": config.take_profit_pct,
-                "leverage": config.leverage,
+                "initial_cash": float(config.initial_cash),
+                "fee_bps": float(config.fee_bps),
+                "slippage_bps": float(config.slippage_bps),
+                "stop_loss_pct": float(config.stop_loss_pct) if config.stop_loss_pct is not None else None,
+                "take_profit_pct": float(config.take_profit_pct) if config.take_profit_pct is not None else None,
+                "leverage": float(config.leverage),
                 "stage": stage,
                 "data": fingerprint,
-            },
+            }
+        if policy_json != "{}":
+            identity_values["policy"] = json.loads(policy_json)
+        if research_plan_id:
+            identity_values["research_plan_id"] = research_plan_id
+        identity = json.dumps(
+            identity_values,
             sort_keys=True,
             separators=(",", ":"),
         )
@@ -293,13 +327,24 @@ class BacktestRunRepository:
             fees=metrics.fees,
             slippage=metrics.slippage,
             strategy_key=strategy_key,
+            policy_json=policy_json,
+            research_plan_id=research_plan_id,
         )
+        if research_plan_id:
+            ResearchPlanRepository(self.path).list_plans()
         with closing(self._connect()) as connection:
             with connection:
+                connection.execute("BEGIN IMMEDIATE")
+                if research_plan_id:
+                    ResearchPlanRepository.validate_on_connection(
+                        connection, research_plan_id, stage, candles[0].timestamp_ms,
+                        candles[-1].timestamp_ms + TIMEFRAMES_MS[result.timeframe], consume=True,
+                    )
                 existing = connection.execute(
                     "SELECT * FROM backtest_runs WHERE run_key=?", (run.run_key,)
                 ).fetchone()
                 if existing is not None:
+                    self._store_result(connection, BacktestRun(**dict(existing)), result, "reproduced")
                     return SavedBacktestRun(
                         run=BacktestRun(**dict(existing)), created=False
                     )
@@ -318,11 +363,73 @@ class BacktestRunRepository:
                     tuple(vars(run).values()),
                 )
                 self._insert_adjustment_log(connection, run, previous, version)
+                self._store_result(connection, run, result, "original")
         return SavedBacktestRun(
             run=run,
             created=True,
             strategy_created=strategy_created,
         )
+
+    @staticmethod
+    def _store_result(
+        connection: sqlite3.Connection, run: BacktestRun, result: BacktestResult, source: str,
+    ) -> None:
+        if (run.symbol, run.timeframe, run.strategy_name) != (result.symbol, result.timeframe, result.strategy_name):
+            raise ValueError("result identity does not match saved experiment")
+        for field in ("initial_cash", "final_equity"):
+            if not isclose(getattr(run, field), getattr(result, field), rel_tol=1e-10, abs_tol=1e-8):
+                raise ValueError("result does not match saved experiment")
+        metric_fields = ("total_return", "cagr", "sharpe_ratio", "sortino_ratio", "maximum_drawdown",
+                         "number_of_trades", "exposure", "fees", "slippage")
+        if any(not isclose(getattr(run, field), getattr(result.metrics, field), rel_tol=1e-10, abs_tol=1e-8) for field in metric_fields):
+            raise ValueError("result metrics do not match saved experiment")
+        curve = result.equity_curve
+        if not curve or not isclose(curve[0].equity, run.initial_cash) or not isclose(curve[-1].equity, run.final_equity):
+            raise ValueError("equity curve does not match saved experiment")
+        if curve[-1].timestamp_ms != run.until_ms or any(b.timestamp_ms <= a.timestamp_ms for a, b in zip(curve, curve[1:])):
+            raise ValueError("invalid equity curve timestamps")
+        connection.execute("INSERT OR IGNORE INTO backtest_results VALUES (?,?,?,?)",
+                           (run.run_key, int(time()*1000), source, serialize_result(result)))
+
+    def get_result(self, run_key: str) -> tuple[BacktestResult, str] | None:
+        with closing(self._connect()) as connection:
+            row = connection.execute("SELECT payload_json,source FROM backtest_results WHERE run_key=?", (run_key,)).fetchone()
+        return (deserialize_result(row["payload_json"]), row["source"]) if row else None
+
+    def list_matching_period(self, run: BacktestRun) -> list[BacktestRun]:
+        """Find other strategy versions with exactly the same evaluation window."""
+        with closing(self._connect()) as connection:
+            rows = connection.execute("""SELECT * FROM backtest_runs
+                WHERE symbol=? AND timeframe=? AND since_ms=? AND until_ms=?
+                  AND strategy_key<>? ORDER BY created_at_ms DESC,run_key DESC""",
+                (run.symbol, run.timeframe, run.since_ms, run.until_ms, run.strategy_key),
+            ).fetchall()
+        return [BacktestRun(**dict(row)) for row in rows]
+
+    def list_periods(self, symbol: str, timeframe: str) -> list[dict[str, int]]:
+        interval = TIMEFRAMES_MS[timeframe]
+        with closing(self._connect()) as connection:
+            rows = connection.execute("""SELECT since_ms,until_ms+? AS until_exclusive_ms,
+                COUNT(*) AS run_count,MAX(created_at_ms) AS latest_at
+                FROM backtest_runs WHERE symbol=? AND timeframe=?
+                GROUP BY since_ms,until_ms ORDER BY latest_at DESC,since_ms DESC""",
+                (interval, symbol, timeframe)).fetchall()
+        return [dict(row) for row in rows]
+
+    def list_runs_in_period(self, symbol: str, timeframe: str, since_ms: int, until_exclusive_ms: int) -> list[BacktestRun]:
+        with closing(self._connect()) as connection:
+            rows = connection.execute("""SELECT * FROM backtest_runs
+                WHERE symbol=? AND timeframe=? AND since_ms=? AND until_ms=?
+                ORDER BY created_at_ms DESC,run_key DESC""",
+                (symbol, timeframe, since_ms, until_exclusive_ms-TIMEFRAMES_MS[timeframe])).fetchall()
+        return [BacktestRun(**dict(row)) for row in rows]
+
+    def save_reproduced_result(self, run_key: str, result: BacktestResult) -> None:
+        with closing(self._connect()) as connection, connection:
+            row = connection.execute("SELECT * FROM backtest_runs WHERE run_key=?", (run_key,)).fetchone()
+            if row is None:
+                raise ValueError("saved experiment does not exist")
+            self._store_result(connection, BacktestRun(**dict(row)), result, "reproduced")
 
     def list_recent(self, limit: int = 20) -> list[BacktestRun]:
         if not 1 <= limit <= 100:
@@ -363,15 +470,15 @@ class BacktestRunRepository:
         return StrategyVersion(**dict(row)) if row is not None else None
 
     def list_runs_for_strategy(
-        self, strategy_key: str, limit: int = 100
+        self, strategy_key: str, limit: int | None = 100
     ) -> list[BacktestRun]:
-        if not 1 <= limit <= 500:
+        if limit is not None and not 1 <= limit <= 500:
             raise ValueError("invalid strategy run limit")
         with closing(self._connect()) as connection:
             rows = connection.execute(
                 "SELECT * FROM backtest_runs WHERE strategy_key=? "
-                "ORDER BY created_at_ms DESC LIMIT ?",
-                (strategy_key, limit),
+                "ORDER BY created_at_ms DESC,run_key DESC" + (" LIMIT ?" if limit is not None else ""),
+                (strategy_key, limit) if limit is not None else (strategy_key,),
             ).fetchall()
         return [BacktestRun(**dict(row)) for row in rows]
 
@@ -416,7 +523,7 @@ class BacktestRunRepository:
         with connection:
             for row in rows:
                 run = BacktestRun(**dict(row))
-                family = "sma" if run.fast_period is not None else "buy-hold"
+                family = strategy_family(run.strategy_name)
                 key = _strategy_key(
                     run.symbol,
                     run.timeframe,
@@ -426,6 +533,7 @@ class BacktestRunRepository:
                     run.stop_loss_pct,
                     run.take_profit_pct,
                     run.leverage,
+                    run.policy_json,
                 )
                 existing = connection.execute(
                     "SELECT 1 FROM strategy_versions WHERE strategy_key=?", (key,)
@@ -441,7 +549,7 @@ class BacktestRunRepository:
                     """, (run.symbol, run.timeframe, family)).fetchone()[0]
                     connection.execute(
                         "INSERT INTO strategy_versions VALUES "
-                        "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                         (
                             key,
                             run.created_at_ms,
@@ -456,6 +564,7 @@ class BacktestRunRepository:
                             run.take_profit_pct,
                             run.leverage,
                             run.note,
+                            run.policy_json,
                         ),
                     )
                 connection.execute(
@@ -494,7 +603,7 @@ class BacktestRunRepository:
         with connection:
             for row in rows:
                 run = BacktestRun(**dict(row))
-                family = "sma" if run.fast_period is not None else "buy-hold"
+                family = strategy_family(run.strategy_name)
                 series = (run.symbol, run.timeframe, family)
                 exists = connection.execute(
                     "SELECT 1 FROM strategy_adjustment_logs WHERE run_key=?",
@@ -542,7 +651,7 @@ class BacktestRunRepository:
             if row is None:
                 raise ValueError("selected base strategy version does not exist")
             selected = BacktestRun(**dict(row))
-            same_family = (selected.fast_period is None) == (run.fast_period is None)
+            same_family = strategy_family(selected.strategy_name) == strategy_family(run.strategy_name)
             if (
                 selected.symbol != run.symbol
                 or selected.timeframe != run.timeframe
@@ -550,20 +659,17 @@ class BacktestRunRepository:
             ):
                 raise ValueError("selected base version belongs to another strategy series")
             return selected
-        row = connection.execute("""
+        rows = connection.execute("""
             SELECT * FROM backtest_runs
             WHERE symbol=? AND timeframe=? AND run_key<>?
-              AND ((? IS NULL AND fast_period IS NULL)
-                   OR (? IS NOT NULL AND fast_period IS NOT NULL))
-            ORDER BY created_at_ms DESC LIMIT 1
+            ORDER BY created_at_ms DESC
         """, (
             run.symbol,
             run.timeframe,
             run.run_key,
-            run.fast_period,
-            run.fast_period,
-        )).fetchone()
-        return BacktestRun(**dict(row)) if row is not None else None
+        )).fetchall()
+        return next((BacktestRun(**dict(row)) for row in rows
+                     if strategy_family(row["strategy_name"]) == strategy_family(run.strategy_name)), None)
 
     @staticmethod
     def _ensure_strategy_version(
@@ -613,6 +719,7 @@ class BacktestRunRepository:
             take_profit_pct=run.take_profit_pct,
             leverage=run.leverage,
             hypothesis=run.note,
+            policy_json=run.policy_json,
         )
         columns = tuple(vars(version))
         connection.execute(
@@ -663,18 +770,22 @@ def _strategy_key(
     stop_loss_pct: float | None,
     take_profit_pct: float | None,
     leverage: float,
+    policy_json: str = "{}",
 ) -> str:
-    identity = json.dumps(
-        {
+    values = {
             "symbol": symbol,
             "timeframe": timeframe,
             "family": family,
             "fast_period": fast_period,
             "slow_period": slow_period,
-            "stop_loss_pct": stop_loss_pct,
-            "take_profit_pct": take_profit_pct,
-            "leverage": leverage,
-        },
+            "stop_loss_pct": float(stop_loss_pct) if stop_loss_pct is not None else None,
+            "take_profit_pct": float(take_profit_pct) if take_profit_pct is not None else None,
+            "leverage": float(leverage),
+        }
+    if policy_json != "{}":
+        values["policy"] = json.loads(policy_json)
+    identity = json.dumps(
+        values,
         sort_keys=True,
         separators=(",", ":"),
     )
@@ -702,6 +813,7 @@ def _parameter_changes(
         "stop_loss_pct",
         "take_profit_pct",
         "leverage",
+        "policy_json",
     )
     if previous is None:
         return {}

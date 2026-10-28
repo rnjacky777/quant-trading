@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from math import isfinite
 
 SYMBOLS = frozenset({"BTC/USDT", "ETH/USDT"})
-TIMEFRAMES_MS = {"4h": 4 * 60 * 60 * 1000, "1d": 24 * 60 * 60 * 1000}
+TIMEFRAMES_MS = {"1h": 60 * 60 * 1000, "4h": 4 * 60 * 60 * 1000, "1d": 24 * 60 * 60 * 1000}
 
 
 @dataclass(frozen=True)
@@ -69,7 +69,7 @@ class MarkPriceCandle:
     def __post_init__(self) -> None:
         if self.symbol not in SYMBOLS or not self.exchange or self.timestamp_ms < 0:
             raise ValueError("invalid mark price identity")
-        if self.timeframe not in {"1m", "4h", "1d"}:
+        if self.timeframe not in {"1m", "1h", "4h", "1d"}:
             raise ValueError("unsupported mark price timeframe")
         prices = (self.open, self.high, self.low, self.close)
         if not all(isfinite(value) and value > 0 for value in prices):

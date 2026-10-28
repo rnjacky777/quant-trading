@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}AI 比較判斷 · Quant Console{% endblock %}
+{% block content %}
+<section class="result-title"><div><p class="eyebrow">COMPARISON REVIEW</p><h1>AI 比較判斷</h1><p>提交後，請讓 agent 使用 skill 處理等待任務。判斷會保留在此，不會自動建立策略版本。</p></div></section>
+{% for item in items %}<section class="panel" id="review-{{ item.request_id }}">
+<div class="section-head"><h2>比較 #{{ item.request_id }}</h2><span class="tag">{{ {'pending':'等待 AI 判斷','completed':'已完成判斷','cancelled':'已取消'}[item.status] }}</span></div>
+<p>{% for entry in item.evidence.entries %}{{ 'A' if loop.first else 'B' }} · {{ entry.run.strategy_name }} V{{ entry.version }} · {{ entry.run.run_key[:8] }}{% if not loop.last %} ／ {% endif %}{% endfor %}</p>
+<p>你的問題：{{ item.objective or '比較收益、回撤與成本，判斷兩個版本的取捨。' }}</p>
+{% if item.summary %}<p style="white-space:pre-wrap">{{ item.summary }}</p>{% endif %}
+<a class="small-link" href="/backtests/compare?run_keys={{ item.run_keys[0] }}&run_keys={{ item.run_keys[1] }}">查看原始比較 →</a>
+{% if item.status == 'pending' %}<form action="/comparison-reviews/{{ item.request_id }}/cancel" method="post"><button class="small-action" type="submit">取消等待</button></form>{% endif %}
+</section>{% else %}<section class="panel"><p>尚無比較判斷任務。先選日期與兩筆回測，再從比較頁提交。</p><a href="/backtests/select">選擇比較 →</a></section>{% endfor %}
+{% endblock %}

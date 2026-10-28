@@ -10,7 +10,7 @@ class ResearchAdvice:
     headline: str
     explanation: str
     evidence: tuple[str, ...]
-    changes: dict[str, float | int]
+    changes: dict[str, float | int | str]
     validation_plan: str
 
     @property
@@ -19,7 +19,7 @@ class ResearchAdvice:
 
 
 def analyze_backtest(
-    result: BacktestResult, config: BacktestConfig
+    result: BacktestResult, config: BacktestConfig, *, research_stage: str = "development"
 ) -> ResearchAdvice:
     """Produce one controlled next experiment from observable backtest evidence."""
     metrics = result.metrics
@@ -34,11 +34,19 @@ def analyze_backtest(
         f"Profit Factor {_format_profit_factor(metrics.profit_factor)}",
         f"止損離場 {stop_ratio * 100:.1f}%",
     )
+    if research_stage != "development":
+        return ResearchAdvice(
+            decision="frozen_evaluation",
+            headline="固定版本評估，不從此區間產生調參建議",
+            explanation="驗證與保留資料用來評估已固定的策略；若依結果調整，該區間就成為開發資料。",
+            evidence=evidence, changes={},
+            validation_plan="保留本次證據；任何修改都回到開發資料，並重新安排未見驗證。",
+        )
 
     if metrics.number_of_trades < 20:
         return ResearchAdvice(
             decision="collect_more_data",
-            headline="先增加樣本，不建立參數型 V4",
+            headline="先增加樣本，不建立參數型 下一版",
             explanation=(
                 "目前交易次數不足，單次行情可能主導結果。此時調整止盈止損"
                 "很容易把雜訊當成規律。"
@@ -52,11 +60,21 @@ def analyze_backtest(
         target = _lower_leverage(config.leverage)
         return ResearchAdvice(
             decision="reduce_risk",
-            headline=f"V4 候選：槓桿由 {config.leverage:g}x 降為 {target:g}x",
+            headline=f"下一版 候選：槓桿由 {config.leverage:g}x 降為 {target:g}x",
             explanation="回撤已超過 15%，先降低曝險，再評估策略訊號本身。",
             evidence=evidence,
             changes={"leverage": target},
             validation_plan="只改槓桿，使用相同資料重跑；再到 Validation 比較回撤與報酬縮減幅度。",
+        )
+
+    if config.risk_per_trade is None and config.stop_loss_pct is not None and metrics.maximum_drawdown <= -0.30:
+        return ResearchAdvice(
+            decision="test_risk_budget",
+            headline="下一版候選：改用單筆資金風險預算計算倉位",
+            explanation="目前回撤過大，先固定進場與出場條件，測試每筆 0.5% 的資金風險預算；這是風險實驗，不代表訊號變準。",
+            evidence=evidence,
+            changes={"risk_per_trade_pct": 0.5},
+            validation_plan="只改倉位算法；比較報酬、回撤、成本與風險預算，再於預先登記的區間驗證。",
         )
 
     if (
@@ -69,7 +87,7 @@ def analyze_backtest(
         target_slow = max(target_fast + 1, round(slow * 1.2))
         return ResearchAdvice(
             decision="test_signal_filter",
-            headline=f"V4 候選：SMA {fast}/{slow} 改為 {target_fast}/{target_slow}",
+            headline=f"下一版 候選：SMA {fast}/{slow} 改為 {target_fast}/{target_slow}",
             explanation="Profit Factor 低於 1，先測試較慢的趨勢濾網是否能減少無效進出場。",
             evidence=evidence,
             changes={"fast": target_fast, "slow": target_slow},
@@ -80,7 +98,7 @@ def analyze_backtest(
         target = round(config.stop_loss_pct * 0.8 * 100, 2)
         return ResearchAdvice(
             decision="test_loss_control",
-            headline=f"V4 候選：止損由 {config.stop_loss_pct * 100:.2f}% 改為 {target:.2f}%",
+            headline=f"下一版 候選：止損由 {config.stop_loss_pct * 100:.2f}% 改為 {target:.2f}%",
             explanation="超過一半交易由止損離場，先用單一實驗測試更早控制無效交易。",
             evidence=evidence,
             changes={"stop_loss_pct": target},

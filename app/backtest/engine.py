@@ -7,7 +7,10 @@ from app.backtest.models import BacktestConfig, BacktestResult, EquityPoint, Tra
 from app.backtest.slippage import execution_price
 from app.data.models import Candle, FundingRate, MarkPriceCandle, TIMEFRAMES_MS
 from app.risk.margin import MaintenanceMarginModel
-from app.strategies.base import Action, Strategy
+from app.risk.sizing import size_long_position
+from app.risk.regime import loss_streak_multiplier, slow_slope_multiplier
+from app.backtest.reentry import PullbackReentry
+from app.strategies.base import Action, Signal, Strategy
 
 
 @dataclass
@@ -22,6 +25,9 @@ class _OpenPosition:
     stop_loss_price: float | None
     take_profit_price: float | None
     funding: float = 0.0
+    planned_risk: float = 0.0
+    highest_close: float | None = None
+    trailing_stop_active: bool = False
 
 
 class BacktestEngine:
@@ -44,7 +50,11 @@ class BacktestEngine:
         self._validate_derivatives_inputs(funding_rates, mark_prices, margin_model)
         cash = self.config.initial_cash
         position: _OpenPosition | None = None
+        entry_blocked = False
+        trailing_exit_high: float | None = None
+        reclaim = PullbackReentry()
         trades: list[Trade] = []
+        entry_counts: dict[int, int] = {}
         maximum_margin_ratio = 0.0
         funding_rates = funding_rates or []
         mark_prices = mark_prices or []
@@ -62,14 +72,48 @@ class BacktestEngine:
             signal_timestamp_ms = int(signal.timestamp.timestamp() * 1000)
             if signal_timestamp_ms != candles[index - 1].timestamp_ms:
                 raise ValueError("strategy signal timestamp must match the completed candle")
+            timed_exit = (
+                position is not None and self.config.max_holding_bars is not None
+                and candle.timestamp_ms-position.entry_timestamp_ms >= self.config.max_holding_bars*interval
+            )
+            if timed_exit:
+                cash, trade = self._sell(cash, position, candle, candle.open, exit_reason="time_limit")
+                trades.append(trade)
+                position = None
+            if signal.action is Action.SELL:
+                entry_blocked = False
+                trailing_exit_high = None
+                reclaim.reset()
+            reclaim_confirmed = (
+                reclaim.observe(candles[:index], signal.action)
+                if reclaim.exit_timestamp_ms is not None else False
+            )
             if signal.action is Action.SELL and position is not None:
                 cash, trade = self._sell(
                     cash, position, candle, candle.open, exit_reason="signal"
                 )
                 trades.append(trade)
                 position = None
-            elif signal.action is Action.BUY and position is None:
-                cash, position = self._buy(cash, candle)
+            elif signal.action is Action.BUY and position is None and not timed_exit:
+                breakout_confirmed = (
+                    trailing_exit_high is not None
+                    and candles[index - 1].close > trailing_exit_high
+                )
+                day = candle.timestamp_ms // 86400000
+                allowed = self.config.max_entries_per_day is None or entry_counts.get(day, 0) < self.config.max_entries_per_day
+                if allowed and (not entry_blocked or breakout_confirmed or reclaim_confirmed):
+                    multiplier = (
+                        slow_slope_multiplier(candles[:index], 180)
+                        if self.config.risk_regime == "slow_slope" else 1.0
+                    )
+                    if self.config.risk_regime == "loss_streak":
+                        multiplier = loss_streak_multiplier([t.pnl for t in trades])
+                    cash, position = self._buy(cash, candle, signal, multiplier)
+                    if position is not None:
+                        entry_counts[day] = entry_counts.get(day, 0) + 1
+                        entry_blocked = False
+                        trailing_exit_high = None
+                        reclaim.reset()
 
             if position is not None:
                 bar_end = candle.timestamp_ms + interval
@@ -134,6 +178,15 @@ class BacktestEngine:
                     )
                     trades.append(trade)
                     position = None
+                    if exit_reason in {"stop_loss", "trailing_stop"} and self.config.stop_reentry_mode == "signal_reset":
+                        entry_blocked = True
+                    if exit_reason == "trailing_stop" and self.config.trailing_reentry_mode == "exit_high_breakout":
+                        entry_blocked = True
+                        # This whole candle is completed before next-bar decisions.
+                        trailing_exit_high = candle.high
+                    if exit_reason == "trailing_stop" and self.config.trailing_reentry_mode == "pullback_reclaim":
+                        entry_blocked = True
+                        reclaim.arm(candle.timestamp_ms)
 
             if (
                 self.config.market_type == "spot"
@@ -145,6 +198,8 @@ class BacktestEngine:
                 )
                 trades.append(trade)
                 position = None
+            if position is not None:
+                self._advance_trailing_stop(position, candle.close)
             equity = (
                 self._position_equity(cash, position, candle.close)
                 if position else cash
@@ -195,7 +250,7 @@ class BacktestEngine:
         )
         return max(1, index)
 
-    def _buy(self, cash: float, candle: Candle) -> tuple[float, _OpenPosition]:
+    def _buy(self, cash: float, candle: Candle, signal: Signal, risk_multiplier: float = 1.0) -> tuple[float, _OpenPosition | None]:
         price = execution_price(candle.open, self.config.slippage_bps, is_buy=True)
         available = cash * self.config.position_fraction
         fee_rate = self.config.fee_bps / 10_000
@@ -203,6 +258,36 @@ class BacktestEngine:
         notional = margin * self.config.leverage
         fee = fee_amount(notional, self.config.fee_bps)
         quantity = notional / price
+        stop_price = price * (1 - self.config.stop_loss_pct) if self.config.stop_loss_pct else None
+        planned_risk = 0.0
+        if self.config.risk_per_trade is not None:
+            if signal.stop_loss_price is None and signal.stop_loss_fraction is None:
+                raise ValueError("risk-budget sizing requires a strategy stop price")
+            stop_price = (
+                signal.stop_loss_price if signal.stop_loss_price is not None
+                else price * (1 - signal.stop_loss_fraction)
+            )
+            if candle.open <= stop_price:
+                return cash, None
+            quantity = size_long_position(
+                equity=cash, entry_price=price, stop_price=stop_price,
+                risk_fraction=self.config.risk_per_trade * risk_multiplier,
+                max_exposure_fraction=self.config.max_exposure_fraction,
+                available_cash=available, fee_bps=self.config.fee_bps,
+                slippage_bps=self.config.slippage_bps,
+            )
+            if quantity <= 0:
+                return cash, None
+            notional = quantity * price
+            margin = notional
+            fee = fee_amount(notional, self.config.fee_bps)
+            stop_fill = execution_price(stop_price, self.config.slippage_bps, is_buy=False)
+            planned_risk = quantity * (price - stop_fill) + fee + fee_amount(quantity * stop_fill, self.config.fee_bps)
+        elif self.config.max_exposure_fraction < 1:
+            notional = min(notional, cash * self.config.max_exposure_fraction)
+            margin = notional / self.config.leverage
+            fee = fee_amount(notional, self.config.fee_bps)
+            quantity = notional / price
         slippage = quantity * (price - candle.open)
         return cash - notional - fee, _OpenPosition(
             candle.timestamp_ms,
@@ -212,10 +297,10 @@ class BacktestEngine:
             fee,
             slippage,
             margin,
-            price * (1 - self.config.stop_loss_pct)
-            if self.config.stop_loss_pct else None,
+            stop_price,
             price * (1 + self.config.take_profit_pct)
-            if self.config.take_profit_pct else None,
+            if self.config.take_profit_pct and self.config.exit_mode == "fixed" else None,
+            planned_risk=planned_risk,
         )
 
     def _sell(
@@ -256,6 +341,7 @@ class BacktestEngine:
             leverage=self.config.leverage,
             funding=position.funding,
             liquidation_fee=liquidation_fee,
+            planned_risk=position.planned_risk,
         )
 
     @staticmethod
@@ -283,10 +369,22 @@ class BacktestEngine:
         position: _OpenPosition, candle: Candle
     ) -> tuple[float, str] | None:
         if position.stop_loss_price is not None and candle.low <= position.stop_loss_price:
-            return min(candle.open, position.stop_loss_price), "stop_loss"
+            return min(candle.open, position.stop_loss_price), "trailing_stop" if position.trailing_stop_active else "stop_loss"
         if position.take_profit_price is not None and candle.high >= position.take_profit_price:
             return max(candle.open, position.take_profit_price), "take_profit"
         return None
+
+    def _advance_trailing_stop(self, position: _OpenPosition, completed_close: float) -> None:
+        """Update only after this candle's exits; the new stop starts next bar."""
+        activation, distance = self.config.trailing_activation, self.config.trailing_distance
+        if activation is None or distance is None:
+            return
+        position.highest_close = max(position.highest_close or position.entry_price, completed_close)
+        if position.highest_close >= position.entry_price * (1 + activation):
+            next_stop = position.highest_close * (1 - distance)
+            if position.stop_loss_price is None or next_stop > position.stop_loss_price:
+                position.stop_loss_price = next_stop
+                position.trailing_stop_active = True
 
     @staticmethod
     def _validate_candles(candles: list[Candle]) -> None:

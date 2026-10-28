@@ -32,7 +32,7 @@
     <div><h3>下載或更新 K 線</h3><p>自動跟隨下方 BACKTEST 的交易對、週期和日期；重複期間只會更新現有資料。</p></div>
     <form class="download-form" action="/data/download" method="post" data-persist-key="quant-download-form">
       <label>交易對<select name="symbol"><option>BTC/USDT</option><option>ETH/USDT</option></select></label>
-      <label>週期<select name="timeframe"><option value="1d">1D</option><option value="4h">4H</option></select></label>
+      <label>週期<select name="timeframe"><option value="4h">4H</option><option value="1h">1H</option><option value="1d">1D</option></select></label>
       <label>開始日期<input name="since" type="date" value="{{ default_since }}" required></label>
       <label>結束日期<input name="until" type="date" value="{{ today }}" required></label>
       <button type="submit">下載 K 線 <span>↓</span></button>
@@ -41,85 +41,106 @@
 </section>
 
 <section class="panel" id="backtest">
-  <div class="section-head"><div><p class="eyebrow">BACKTEST</p><h2>執行基準回測</h2></div><span>自動保存設定 · 下一根 K 線開盤成交</span></div>
-  {% if development_branch_draft %}<div class="notice warning"><strong>Development 分支尚未建立。</strong> 請選擇 Development 專用的日期區間、確認參數，再按下方「建立 Development 分支」。完成回測後才能交給 Skill 優化。</div>{% endif %}
-  <p class="form-note">日期是要求回測的範圍，不會自動代表資料已下載。資料不足時可下載完整區間。目前介面執行現貨模式；合約核心已支援 Funding Rate、Mark Price 與維持保證金，合約資料下載完成後才會開放，避免把現貨資料誤當合約回測。</p>
+  <div class="section-head"><div><p class="eyebrow">BACKTEST</p><h2>選擇策略並回測</h2></div><span>自動保存設定 · 下一根 K 線開盤成交</span></div>
+  <p class="form-note">選策略與版本，設定任意日期回測。每次結果自動保存在該版本；想讓 AI 改善時，在下方將版本標記為「等待 AI 優化」。日期以 UTC 計算，結束日期不包含當日。日期是要求回測的範圍；目前使用現貨資料，Funding Rate 等合約資料另行處理。</p>
   <form class="backtest-form" action="/backtests/run" method="get" data-persist-key="quant-backtest-form">
     <input type="hidden" name="base_run_key" value="">
+    <input type="hidden" name="stage" value="development">
     <label>交易對<select name="symbol"><option>BTC/USDT</option><option>ETH/USDT</option></select></label>
-    <label>週期<select name="timeframe"><option value="1d">1D</option><option value="4h">4H</option></select></label>
-    <label>策略<select name="strategy"><option value="sma">SMA 趨勢</option><option value="buy-hold">Buy &amp; Hold</option></select></label>
-    <label>策略版本<select id="backtest-strategy-version"><option value="">自訂設定</option>{% for item in adjustments %}{% set version = item.version %}<option value="{{ item.replay_url }}" data-run-key="{{ item.run_key }}" data-symbol="{{ version.symbol }}" data-timeframe="{{ version.timeframe }}" data-strategy="{{ version.strategy_family }}">{{ version.symbol }} {{ version.timeframe }} · V{{ version.version_number }} · {{ item.experiment_count }} 次實驗</option>{% endfor %}</select></label>
+    <label>週期<select name="timeframe"><option value="4h">4H</option><option value="1h">1H</option><option value="1d">1D</option></select></label>
+    <label>策略<select name="strategy"><option value="sma">SMA 趨勢</option><option value="intraday">多週期短線（1H）</option><option value="buy-hold">Buy &amp; Hold</option><option value="momentum">動量</option><option value="mean-reversion">均值回歸</option></select></label>
+    <div class="catalog-version-picker"><label>策略版本<select name="strategy_key" id="backtest-strategy-version"><option value="">新策略／自訂參數</option>{% for item in adjustments %}{% set version = item.version %}<option value="{{ version.strategy_key }}" data-category="{{ item.category }}" data-settings='{{ item.parameters|tojson }}' data-run-key="{{ item.run_key }}" data-symbol="{{ version.symbol }}" data-timeframe="{{ version.timeframe }}" data-strategy="{{ version.strategy_family }}">{{ item.category_label }} · {{ item.strategy_label }} V{{ version.version_number }} · {{ version.symbol }} {{ version.timeframe }}</option>{% endfor %}</select></label><label class="catalog-archive-toggle"><input type="checkbox" id="show-archived-versions"> 包含封存版本</label></div>
     <label>開始日期<input name="since" type="date" value="2020-01-01" required></label>
     <label>結束日期<input name="until" type="date" value="2025-01-01" required></label>
     <label>快速均線<input name="fast" type="number" value="20" min="1"></label>
     <label>慢速均線<input name="slow" type="number" value="60" min="2"></label>
+    <label>動量／回歸回看根數<input name="lookback" type="number" value="20" min="2" max="1000"></label>
+    <label>動量門檻（0.02＝2%）<input name="momentum_threshold" type="number" value="0" min="0" max="0.99" step="0.01"></label>
+    <label>回歸進場偏離（0.05＝5%）<input name="entry_deviation" type="number" value="0.05" min="0.001" max="0.99" step="0.001"></label>
     <label>初始資金<input name="initial_cash" type="number" value="10000" min="100" step="100"></label>
     <label>手續費 bps<input name="fee_bps" type="number" value="10" min="0" step="0.1"></label>
     <label>滑價 bps<input name="slippage_bps" type="number" value="5" min="0" step="0.1"></label>
     <label>止損 %<input name="stop_loss_pct" type="number" value="5" min="0" max="99" step="0.1"></label>
     <label>止盈 %<input name="take_profit_pct" type="number" value="10" min="0" max="999" step="0.1"></label>
-    <label>槓桿<select name="leverage"><option value="1">1x</option><option value="2">2x</option><option value="3">3x</option><option value="5">5x</option><option value="10">10x</option></select></label>
-    <label>研究階段<select name="stage"><option value="development">Development</option><option value="validation">Validation</option><option value="out_of_sample">Out-of-Sample</option></select></label>
+    <label>短線強收盤確認<select name="intraday_strong_close"><option value="false">停用</option><option value="true">上漲K線且收在上方三分之一</option></select></label>
+    <label>短線最低ATR／價格 %（0＝停用）<input name="intraday_min_atr_pct" type="number" value="0" min="0" max="99" step="0.1"></label>
+    <label>短線進場<select name="intraday_entry"><option value="breakout">順勢突破20根高點</option><option value="pullback">順勢回檔站回20均線</option></select></label>
+    <label>每日新進場上限（UTC；0＝不限）<input name="max_entries_per_day" type="number" value="0" min="0" step="1"></label>
+    <label>最長持倉根數（0＝不限）<input name="max_holding_bars" type="number" value="0" min="0" step="1"></label>
+    <label>4H方向濾網（僅1H SMA）<select name="higher_timeframe_filter"><option value="false">停用</option><option value="true">4H SMA20高於60才接受買入</option></select></label>
+    <label>倉位風險模式<select name="risk_regime"><option value="fixed">固定單筆風險</option><option value="loss_streak">連虧兩筆後減半，獲利後恢復</option><option value="slow_slope">180 均線斜率：走平或下降時風險減半</option></select></label>
+    <label>單筆資金風險 %（0＝舊版倉位）<input name="risk_per_trade_pct" type="number" value="0.5" min="0" max="100" step="0.1"></label>
+    <label>最大名目曝險 %<input name="max_exposure_pct" type="number" value="100" min="0.1" max="100" step="0.1"></label>
+    <label>出場模式<select name="exit_mode"><option value="fixed">固定止盈＋策略訊號＋保護止損</option><option value="signal">策略訊號＋保護止損（忽略固定止盈）</option></select></label>
+    <label>均線進場差距 %（SMA）<input name="trend_entry_buffer_pct" type="number" value="0" min="0" max="99" step="0.1"></label>
+    <label>追蹤止損啟動漲幅 %（0＝停用）<input name="trailing_activation_pct" type="number" value="0" min="0" max="99" step="0.1"></label>
+    <label>追蹤止損距離 %<input name="trailing_distance_pct" type="number" value="0" min="0" max="99" step="0.1"></label>
+    <label>追蹤退出後再進場<select name="trailing_reentry_mode"><option value="inherit">沿用止損後再進場規則</option><option value="pullback_reclaim">回檔24均線後站回，且180均線向上</option><option value="exit_high_breakout">收盤突破退出 K 線高點或空頭訊號重置</option></select></label>
+    <label>止損後再進場<select name="stop_reentry_mode"><option value="immediate">訊號仍多頭即可再進場</option><option value="signal_reset">等空頭後重新出現多頭</option></select></label>
+    <label>槓桿<select name="leverage"><option value="1">1x</option></select></label>
     <label>研究備註<input name="note" type="text" maxlength="200" placeholder="例如：測試較寬止損"></label>
-    <button type="submit">{{ "建立 Development 分支" if development_branch_draft else "執行回測" }} <span>→</span></button>
+    <button type="submit">執行並保存回測 <span>→</span></button>
   </form>
+  <p class="form-note">單筆資金風險是預計觸及止損時損失的帳戶比例，包含模擬費用與滑價；跳空可能超過預算。目前止損仍採入場成交價的固定百分比作對照。SMA／動量依 SELL 退出，均值回歸在回到均線時退出。最大曝險限制目前單一市場回測的部位，跨市場組合風控尚未實作。</p>
+  <p class="form-note">追蹤啟動與距離需同時設定，或同時為 0 停用。只按已完成 K 線收盤更新，下一根生效；5% 啟動／5% 距離不保證保本，跳空也可能超過止損。</p>
   <p id="strategy-base-note" class="saved-note" hidden></p>
 </section>
 
 <section class="panel" id="strategy-adjustments">
-  <div class="section-head"><div><p class="eyebrow">STRATEGY CHANGE LOG</p><h2>策略版本與調整紀錄</h2></div><span>只比較交易與風險參數</span></div>
-  <p class="form-note">修改均線、止損、止盈或槓桿才會建立新策略版本。日期、研究階段、市場資料、初始資金、手續費與滑價屬於回測實驗，不會讓策略升版。</p>
+  <div class="section-head"><div><p class="eyebrow">STRATEGY LIBRARY</p><h2>我的策略系列</h2></div><span>{{ version_groups|length }} 個系列 · {{ adjustments|length }} 個版本</span></div>
+  <p class="form-note">依策略、交易對與週期分組。「主要研究」是目前研究入口，不代表已通過實盤驗證；「待評估」不會自動取代主要研究。分類可隨時更改，封存仍保留所有回測與比較。</p>
   {% if adjustments %}
   <form class="history-filters" id="adjustment-filters" data-persist-key="quant-adjustment-filters">
-    <label>紀錄開始日期<input name="recorded_from" type="date"></label>
-    <label>紀錄結束日期<input name="recorded_until" type="date"></label>
-    <label>策略<select name="strategy"><option value="">全部策略</option><option value="sma">SMA 趨勢</option><option value="buy-hold">Buy &amp; Hold</option></select></label>
-    <label>K 線週期<select name="timeframe"><option value="">全部週期</option><option value="4h">4H</option><option value="1d">1D</option></select></label>
-    <label>策略版本<select name="version"><option value="">全部版本</option>{% for version in adjustment_versions %}<option value="{{ version }}">V{{ version }}</option>{% endfor %}</select></label>
+    <label>建立開始日期<input name="recorded_from" type="date"></label>
+    <label>建立結束日期<input name="recorded_until" type="date"></label>
+    <label>策略<select name="strategy"><option value="">全部策略</option><option value="sma">SMA 趨勢</option><option value="intraday">多週期短線（1H）</option><option value="buy-hold">Buy &amp; Hold</option><option value="momentum">動量</option><option value="mean-reversion">均值回歸</option></select></label>
+    <label>K 線週期<select name="timeframe"><option value="">全部週期</option><option value="4h">4H</option><option value="1h">1H</option><option value="1d">1D</option></select></label>
+    <label>版本分類<select name="category"><option value="">全部分類</option>{% for value,label in category_labels.items() %}<option value="{{ value }}">{{ label }}</option>{% endfor %}</select></label>
+    <label>版本<select name="version"><option value="">全部版本</option>{% for version in adjustment_versions %}<option value="{{ version }}">V{{ version }}</option>{% endfor %}</select></label>
     <button type="reset">清除篩選</button>
   </form>
-  <p class="filter-summary">顯示 <strong id="adjustment-visible-count">{{ adjustments|length }}</strong> / {{ adjustments|length }} 筆紀錄</p>
-  <div class="table-wrap"><table id="strategy-adjustment-table">
-    <thead><tr><th>版本</th><th>建立時間</th><th>策略</th><th>策略參數</th><th>調整內容</th><th>假設／原因</th><th class="right">最近實驗</th><th></th></tr></thead>
-    <tbody>{% for item in adjustments %}{% set version = item.version %}{% set run = item.latest_run %}<tr data-recorded-date="{{ item.recorded_date }}" data-strategy="{{ version.strategy_family }}" data-timeframe="{{ version.timeframe }}" data-version="{{ version.version_number }}">
-      <td><span class="tag">V{{ version.version_number }}</span><br><span class="muted">{% if item.parent_version %}基於 V{{ item.parent_version }}{% else %}基準版本{% endif %}</span></td>
-      <td class="mono">{{ item.created_at }}</td>
-      <td><strong>{{ version.symbol }} {{ version.timeframe }}</strong><br><span class="muted">{{ item.strategy_label }} · {{ item.experiment_count }} 次實驗</span></td>
-      <td class="mono">{% if version.fast_period is not none %}SMA {{ version.fast_period }}/{{ version.slow_period }} · {% endif %}SL {{ "%.1f"|format((version.stop_loss_pct or 0) * 100) }}% · TP {{ "%.1f"|format((version.take_profit_pct or 0) * 100) }}% · {{ "%.1f"|format(version.leverage) }}x</td>
-      <td>{% if item.changes %}{% for change in item.changes %}<div><strong>{{ change.label }}</strong>：<span class="muted">{{ change.before }}</span> → {{ change.after }}</div>{% endfor %}{% else %}<span class="tag">建立基準設定</span>{% endif %}</td>
-      <td>{{ version.hypothesis or "未填寫" }}</td>
-      <td class="right mono"><span class="tag">{{ item.latest_stage_label }}</span> <span class="{{ 'positive' if run.total_return >= 0 else 'negative' }}">{{ "%+.2f"|format(run.total_return * 100) }}%</span><br><span class="muted">DD {{ "%.2f"|format(run.maximum_drawdown * 100) }}% · {{ run.number_of_trades }} trades</span></td>
-      <td class="right">{% if item.development_run %}{% if item.development_run.run_key in pending_run_keys %}<a class="small-link" href="/strategy-optimizations">已標記</a>{% else %}<form action="/strategy-optimizations/enqueue" method="post"><input type="hidden" name="run_key" value="{{ item.development_run.run_key }}"><button class="small-action" type="submit">交給 Skill 優化</button></form>{% endif %}{% else %}<a class="small-link" href="{{ item.development_url }}">載入 Development 草稿</a>{% endif %}</td>
-    </tr>{% endfor %}</tbody>
-  </table></div>
-  <p class="empty" id="adjustment-filter-empty" hidden>沒有符合篩選條件的策略調整紀錄。</p>
-  {% else %}<p class="empty">完成第一次回測後，這裡會建立策略基準紀錄。</p>{% endif %}
+  <p class="filter-summary">符合篩選 <strong id="adjustment-visible-count">{{ adjustments|length }}</strong> / {{ adjustments|length }} 個版本 · 待評估與封存可展開</p>
+  <div id="strategy-version-groups">
+  {% for group in version_groups %}<section class="catalog-series" data-version-group>
+    <div class="section-head"><h3>{{ group.label }} · {{ group.symbol }} · {{ group.timeframe }}</h3><span>{{ group.count }} 個版本 · {{ group.experiment_count }} 筆實驗</span></div>
+    {% for item in group.primary %}{% include 'strategy_version_card.html' %}{% endfor %}
+    {% if group.candidate %}<details class="catalog-bucket" data-catalog-section data-default-open="{{ 'true' if group.candidate_pending else 'false' }}" {{ 'open' if group.candidate_pending }}><summary>待評估候選 <span class="tag">{{ group.candidate|length }}</span>{% if group.candidate_pending %} · 有等待 AI 優化任務{% endif %}</summary>
+      {% for item in group.candidate %}{% include 'strategy_version_card.html' %}{% endfor %}
+    </details>{% endif %}
+    {% if group.archived %}<details class="catalog-bucket" data-catalog-section data-default-open="{{ 'true' if group.archived_pending else 'false' }}" {{ 'open' if group.archived_pending }}><summary>已封存歷史 <span class="tag">{{ group.archived|length }}</span>{% if group.archived_pending %} · 有等待 AI 優化任務{% endif %}</summary>
+      {% for item in group.archived %}{% include 'strategy_version_card.html' %}{% endfor %}
+    </details>{% endif %}
+  </section>{% endfor %}
+  </div>
+  <p class="empty" id="adjustment-filter-empty" hidden>沒有符合條件的版本。</p>
+  {% else %}<p class="empty">完成第一次回測後，這裡會建立策略系列；之後的新設定預設為待評估候選。</p>{% endif %}
 </section>
 
 <section class="panel" id="backtest-history">
-  <div class="section-head"><div><p class="eyebrow">EXPERIMENTS</p><h2>回測實驗紀錄</h2></div><span>相同設定與資料不重複新增</span></div>
-  <p class="form-note">相同策略版本可以使用不同日期、研究階段與市場資料反覆測試。Out-of-Sample 結果一旦用來調參，就不再是未見資料。</p>
+  <div class="section-head"><div><p class="eyebrow">EXPERIMENTS</p><h2>全部回測紀錄</h2></div><span>相同設定與資料不重複新增</span></div>
+  <p class="form-note">回測區間顯示於每列左側。按「找同區間比較」可直接找到同日期、交易對與週期的另一版本；也可勾選任意兩筆比較。</p>
   {% if history %}
+  {% include "_comparison_toolbar.html" %}
   <form class="history-filters" id="history-filters" data-persist-key="quant-history-filters">
     <label>紀錄開始日期<input name="recorded_from" type="date"></label>
     <label>紀錄結束日期<input name="recorded_until" type="date"></label>
-    <label>策略<select name="strategy"><option value="">全部策略</option><option value="sma">SMA 趨勢</option><option value="buy-hold">Buy &amp; Hold</option></select></label>
-    <label>K 線週期<select name="timeframe"><option value="">全部週期</option><option value="4h">4H</option><option value="1d">1D</option></select></label>
+    <label>策略<select name="strategy"><option value="">全部策略</option><option value="sma">SMA 趨勢</option><option value="intraday">多週期短線（1H）</option><option value="buy-hold">Buy &amp; Hold</option><option value="momentum">動量</option><option value="mean-reversion">均值回歸</option></select></label>
+    <label>K 線週期<select name="timeframe"><option value="">全部週期</option><option value="4h">4H</option><option value="1h">1H</option><option value="1d">1D</option></select></label>
     <label>策略版本<select name="version"><option value="">全部版本</option>{% for version in history_versions %}<option value="{{ version }}">V{{ version }}</option>{% endfor %}</select></label>
     <button type="reset">清除篩選</button>
   </form>
   <p class="filter-summary">顯示 <strong id="history-visible-count">{{ history|length }}</strong> / {{ history|length }} 筆紀錄</p>
   <div class="table-wrap"><table id="backtest-history-table">
-    <thead><tr><th>版本</th><th>執行時間</th><th>階段</th><th>策略／參數</th><th>風險設定</th><th class="right">報酬</th><th class="right">最大回撤</th><th class="right">交易</th><th>備註</th><th></th></tr></thead>
+    <thead><tr><th>比較</th><th>回測區間（UTC）</th><th>版本</th><th>策略／參數</th><th>風險設定</th><th class="right">報酬</th><th class="right">最大回撤</th><th class="right">交易</th><th>備註</th><th></th></tr></thead>
     <tbody>{% for item in history %}{% set run = item.run %}<tr data-recorded-date="{{ item.recorded_date }}" data-strategy="{{ item.strategy_key }}" data-timeframe="{{ run.timeframe }}" data-version="{{ item.version_number or '' }}">
+      <td><input type="checkbox" class="compare-select" value="{{ run.run_key }}" aria-label="比較 {{ run.strategy_name }} V{{ item.version_number }} {{ format_date(run.since_ms) }}" data-label="{{ run.symbol }} {{ run.timeframe }} · {{ item.strategy_label }} V{{ item.version_number }} · {{ format_date(run.since_ms) }}～{{ format_date(run.until_ms + (14400000 if run.timeframe == '4h' else 86400000)) }}"></td>
+      <td class="period-cell"><strong>{{ item.period_since }}</strong><span>→ {{ item.period_until }}</span><small class="muted">結束不含當日</small></td>
       <td>{% if item.version_number %}<span class="tag">V{{ item.version_number }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
-      <td class="mono">{{ item.created_at }}</td><td><span class="tag">{{ item.stage_label }}</span></td>
       <td><strong>{{ run.symbol }} {{ run.timeframe }}</strong><br><span class="muted">{{ item.strategy_label }} · {{ run.strategy_name }}</span></td>
-      <td class="mono">SL {{ "%.1f"|format((run.stop_loss_pct or 0) * 100) }}% · TP {{ "%.1f"|format((run.take_profit_pct or 0) * 100) }}% · {{ "%.1f"|format(run.leverage) }}x</td>
+      <td class="mono">SL {{ "%.1f"|format((run.stop_loss_pct or 0) * 100) }}% · TP {{ "%.1f"|format((run.take_profit_pct or 0) * 100) }}% · {{ "%.1f"|format(run.leverage) }}x<br>{% if item.policy.get("risk_per_trade") %}資金風險 {{ "%.2f"|format(item.policy.risk_per_trade * 100) }}%{% else %}資金比例倉位{% endif %} · {{ "訊號出場" if item.policy.get("exit_mode") == "signal" else "固定止盈" }}{% if item.policy.get("stop_reentry_mode") == "signal_reset" %} · 止損後等訊號重置{% endif %}{% if item.policy.get("trailing_reentry_mode") == "exit_high_breakout" %} · 追蹤後突破再入{% endif %}{% if item.policy.get("trailing_activation") %} · 追蹤 {{ "%.1f"|format(item.policy.trailing_activation * 100) }}%／{{ "%.1f"|format(item.policy.trailing_distance * 100) }}%{% endif %}{% if item.policy.get("trend_entry_buffer") %} · 均線門檻 {{ "%.2f"|format(item.policy.trend_entry_buffer * 100) }}%{% endif %}</td>
       <td class="right mono {{ 'positive' if run.total_return >= 0 else 'negative' }}">{{ "%+.2f"|format(run.total_return * 100) }}%</td>
       <td class="right mono negative">{{ "%.2f"|format(run.maximum_drawdown * 100) }}%</td><td class="right mono">{{ run.number_of_trades }}</td>
-      <td>{{ run.note or "—" }}</td><td><a class="small-link" href="{{ item.edit_url }}">載入調整</a></td>
+      <td>{{ run.note or "—" }}</td><td><div class="run-actions"><a class="small-link" href="{{ item.result_url }}">查看結果</a><a class="small-link" href="{{ item.matches_url }}">找同區間比較</a><a class="secondary-link" href="{{ item.edit_url }}">載入此區間</a></div></td>
     </tr>{% endfor %}</tbody>
   </table></div>
   <p class="empty" id="history-filter-empty" hidden>沒有符合篩選條件的回測紀錄。</p>

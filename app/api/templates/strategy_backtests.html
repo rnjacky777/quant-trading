@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}V{{ version.version_number }} 回測紀錄 · Quant Console{% endblock %}
+{% block content %}
+<section class="result-title">
+  <div><a class="back" href="/#strategy-adjustments">← 返回策略列表</a><p class="eyebrow">VERSION BACKTESTS</p><h1>{{ version.symbol }} <span>{{ version.timeframe }} · V{{ version.version_number }}</span></h1><p>此版本的 {{ experiments|length }} 筆回測 · 日期以 UTC 計算，結束不包含當日</p></div>
+</section>
+<section class="panel version-backtests">
+  <div class="section-head"><h2>回測紀錄</h2><span>依執行時間由新到舊排列</span></div>
+  {% if experiments %}
+  {% include "_comparison_toolbar.html" %}
+  <p><a class="secondary-link" href="/#backtest-history">前往全部回測紀錄選擇另一個策略 →</a></p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>比較</th><th>回測期間</th><th>執行時間</th><th class="right">報酬</th><th class="right">最大回撤</th><th class="right">交易數</th><th></th></tr></thead>
+    <tbody>{% for item in experiments %}{% set run = item.run %}<tr>
+      <td><input type="checkbox" class="compare-select" value="{{ run.run_key }}" aria-label="比較 {{ run.strategy_name }} V{{ version.version_number }} {{ format_date(run.since_ms) }}" data-label="{{ run.symbol }} {{ run.timeframe }} · {{ run.strategy_name }} V{{ version.version_number }} · {{ format_date(run.since_ms) }}～{{ format_date(run.until_ms + (14400000 if run.timeframe == '4h' else 86400000)) }}"></td>
+      <td class="period-cell"><strong>{{ format_date(run.since_ms) }}</strong><span class="muted">至 {{ format_date(run.until_ms + (14400000 if run.timeframe == '4h' else 86400000)) }}</span></td>
+      <td class="mono muted">{{ item.created_at }}</td>
+      <td class="right mono {{ 'positive' if run.total_return >= 0 else 'negative' }}">{{ "%+.2f"|format(run.total_return*100) }}%</td>
+      <td class="right mono negative">{{ "%.2f"|format(run.maximum_drawdown*100) }}%</td>
+      <td class="right mono">{{ run.number_of_trades }}</td>
+      <td class="right"><div class="run-actions"><a class="small-link" href="{{ item.result_url }}">查看結果</a><a class="small-link" href="{{ item.matches_url }}">找同區間比較</a><a class="secondary-link" href="{{ item.edit_url }}">載入此區間 →</a></div></td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+  {% else %}<p class="empty">此版本尚無回測紀錄。</p>{% endif %}
+</section>
+{% endblock %}

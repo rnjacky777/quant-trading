@@ -49,3 +49,10 @@ def test_advisor_proposes_one_sma_filter_experiment() -> None:
         BacktestConfig(),
     )
     assert advice.changes == {"fast": 24, "slow": 72}
+
+
+def test_advisor_prioritizes_risk_budget_and_freezes_validation() -> None:
+    evidence = result(trades=100, drawdown=-0.6, profit_factor=0.8)
+    config = BacktestConfig(stop_loss_pct=0.05)
+    assert analyze_backtest(evidence, config).changes == {"risk_per_trade_pct": 0.5}
+    assert not analyze_backtest(evidence, config, research_stage="validation").has_candidate

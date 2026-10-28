@@ -11,7 +11,7 @@ def test_optimization_queue_records_lifecycle(tmp_path) -> None:
     duplicate = repository.enqueue(RUN_KEY, "不應建立第二筆")
 
     assert duplicate.request_id == request.request_id
-    assert repository.list_requests("pending") == [request]
+    assert repository.list_requests("pending") == [duplicate]
 
     assert repository.complete(
         request.request_id,

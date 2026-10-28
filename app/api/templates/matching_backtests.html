@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}同區間比較 · Quant Console{% endblock %}
+{% block content %}
+<a class="back" href="/#backtest-history">← 返回回測紀錄</a>
+<section class="result-title"><div><p class="eyebrow">SAME PERIOD</p><h1>同區間比較</h1><p>{{ source.run.symbol }} · {{ source.run.timeframe }} · <strong>{{ source.period_since }} → {{ source.period_until }}</strong>（UTC，結束不含當日）</p></div></section>
+<section class="panel"><div class="section-head"><h2>基準：{{ source.strategy_label }} V{{ source.version_number }}</h2></div><p>只列出交易對、K 線週期、開始與結束時間完全相同的其他策略版本。資金、成本或風控若不同，比較頁會提示。</p>
+{% if matches %}<div class="table-wrap"><table><thead><tr><th>另一個策略／版本</th><th class="right">報酬</th><th class="right">最大回撤</th><th class="right">交易數</th><th></th></tr></thead><tbody>{% for item in matches %}<tr><td><strong>{{ item.strategy_label }} V{{ item.version_number }}</strong><br><span class="muted">{{ item.run.strategy_name }}</span></td><td class="right mono">{{ "%+.2f"|format(item.run.total_return*100) }}%</td><td class="right mono">{{ "%.2f"|format(item.run.maximum_drawdown*100) }}%</td><td class="right mono">{{ item.run.number_of_trades }}</td><td class="right"><a class="small-link" href="{{ item.compare_url }}">與基準比較 →</a></td></tr>{% endfor %}</tbody></table></div>
+{% else %}<p class="empty">尚無其他策略版本在此區間的回測。先載入此區間，切換另一個策略／版本後執行回測，再回來比較。</p>{% endif %}
+<p><a class="small-link" href="{{ source.edit_url }}">用此區間回測另一策略 →</a></p>
+</section>
+{% endblock %}

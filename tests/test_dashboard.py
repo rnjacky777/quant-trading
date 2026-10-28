@@ -38,7 +38,7 @@ def test_dashboard_lists_coverage_and_runs_backtest(tmp_path, monkeypatch) -> No
     assert "量化交易研究台" in dashboard.text
     assert "BTC/USDT" in dashboard.text
     assert 'data-persist-key="quant-backtest-form"' in dashboard.text
-    assert "/static/dashboard.js?v=12" in dashboard.text
+    assert "/static/dashboard.js?v=28" in dashboard.text
     assert "實際已下載開始" in dashboard.text
     assert "日期是要求回測的範圍" in dashboard.text
     assert "Funding Rate" in dashboard.text
@@ -60,11 +60,11 @@ def test_dashboard_lists_coverage_and_runs_backtest(tmp_path, monkeypatch) -> No
     assert "BACKTEST RESULT" in result.text
     assert "資產曲線" in result.text
     assert "交易紀錄" in result.text
-    assert "RESEARCH ADVISOR" in result.text
-    assert "下一版研究建議" in result.text
+    assert "AI OPTIMIZATION" in result.text
+    assert "此版本目前有" in result.text
     assert "止損" in result.text
     assert "槓桿" in result.text
-    assert "交給 Skill 優化" in result.text
+    assert "標記等待 AI 優化" in result.text
     assert "已建立策略版本 V1" in result.text
 
     recorded = BacktestRunRepository(database).list_recent()
@@ -101,16 +101,16 @@ def test_dashboard_lists_coverage_and_runs_backtest(tmp_path, monkeypatch) -> No
             "strategy": "sma",
             "fast": 5,
             "slow": 20,
-            "leverage": 2,
-            "note": "測試提高槓桿",
+            "risk_per_trade_pct": 0.5,
+            "note": "測試風險倉位",
         },
     )
     assert changed.status_code == 200
     adjustments = BacktestRunRepository(database).list_adjustments()
     assert len(adjustments) == 2
-    assert adjustments[0].hypothesis == "測試提高槓桿"
+    assert adjustments[0].hypothesis == "測試風險倉位"
     assert adjustments[0].version_number == 2
-    assert adjustments[0].changes["leverage"] == {"from": 1.0, "to": 2.0}
+    assert "policy_json" in adjustments[0].changes
 
     branched = client.get(
         "/backtests/run",
@@ -122,8 +122,8 @@ def test_dashboard_lists_coverage_and_runs_backtest(tmp_path, monkeypatch) -> No
             "strategy": "sma",
             "fast": 5,
             "slow": 20,
-            "leverage": 3,
-            "note": "從 V1 測試 3x",
+            "risk_per_trade_pct": 0.25,
+            "note": "從 V1 測試較小風險",
             "base_run_key": recorded[0].run_key,
         },
     )
@@ -131,24 +131,24 @@ def test_dashboard_lists_coverage_and_runs_backtest(tmp_path, monkeypatch) -> No
     adjustments = BacktestRunRepository(database).list_adjustments()
     assert adjustments[0].version_number == 3
     assert adjustments[0].previous_run_key == recorded[0].run_key
-    assert adjustments[0].changes["leverage"] == {"from": 1.0, "to": 3.0}
+    assert "policy_json" in adjustments[0].changes
 
     dashboard = client.get("/")
-    assert "STRATEGY CHANGE LOG" in dashboard.text
+    assert "STRATEGY LIBRARY" in dashboard.text
     assert 'id="backtest-strategy-version"' in dashboard.text
     assert 'data-strategy="sma"' in dashboard.text
     assert 'data-run-key="' in dashboard.text
     assert "V2" in dashboard.text
     assert "基於 V1" in dashboard.text
-    assert "測試提高槓桿" in dashboard.text
+    assert "測試風險倉位" in dashboard.text
     assert "1.0x" in dashboard.text
-    assert "2.0x" in dashboard.text
-    assert "交給 Skill 優化" in dashboard.text
-    assert "載入調整" in dashboard.text
+    assert "0.50%" in dashboard.text
+    assert "標記等待 AI 優化" in dashboard.text
+    assert "載入此區間" in dashboard.text
     assert "load_strategy=history" in dashboard.text
     assert 'id="adjustment-filters"' in dashboard.text
-    assert 'id="strategy-adjustment-table"' in dashboard.text
-    assert 'id="adjustment-visible-count">3</strong> / 3 筆紀錄' in dashboard.text
+    assert 'id="strategy-version-groups"' in dashboard.text
+    assert 'id="adjustment-visible-count">3</strong> / 3 個版本' in dashboard.text
     assert 'id="history-filters"' in dashboard.text
     assert 'name="recorded_from"' in dashboard.text
     assert 'name="recorded_until"' in dashboard.text
@@ -175,7 +175,7 @@ def test_dashboard_lists_coverage_and_runs_backtest(tmp_path, monkeypatch) -> No
     assert optimization_page.status_code == 200
     assert "OPTIMIZATION QUEUE" in optimization_page.text
     assert "降低回撤並保留趨勢報酬" in optimization_page.text
-    assert "$backtest-strategy-optimizer" in optimization_page.text
+    assert "等待 AI 優化" in optimization_page.text
 
 
 def test_dashboard_explains_missing_data(tmp_path, monkeypatch) -> None:
@@ -216,41 +216,24 @@ def test_dashboard_rejects_partial_date_coverage(tmp_path, monkeypatch) -> None:
     assert "需要 120 根，目前只有 90 根" in response.text
 
 
-def test_validation_version_can_be_loaded_as_development_branch(
-    tmp_path, monkeypatch
-) -> None:
+def test_validation_only_version_can_be_marked_without_development_branch(tmp_path, monkeypatch) -> None:
     database = tmp_path / "market.sqlite3"
     _seed(database)
     monkeypatch.setenv("QUANT_DB_PATH", str(database))
     client = TestClient(app)
-
-    result = client.get(
-        "/backtests/run",
-        params={
-            "symbol": "BTC/USDT",
-            "timeframe": "1d",
-            "since": "1970-01-01",
-            "until": "1970-04-01",
-            "strategy": "sma",
-            "fast": 5,
-            "slow": 20,
-            "stage": "validation",
-        },
-    )
+    result = client.get("/backtests/run", params=dict(
+        symbol="BTC/USDT", timeframe="1d", since="1970-01-01", until="1970-04-01",
+        strategy="sma", fast=5, slow=20, stage="validation",
+    ))
     assert result.status_code == 200
-
+    version = BacktestRunRepository(database).list_strategy_versions()[0]
     dashboard = client.get("/")
-    assert "載入 Development 草稿" in dashboard.text
-    assert "stage=development" in dashboard.text
-    assert "load_strategy=development_branch" in dashboard.text
-    assert "base_run_key=" in dashboard.text
-
-    draft = client.get(
-        "/",
-        params={"load_strategy": "development_branch"},
-    )
-    assert draft.status_code == 200
-    assert "Development 分支尚未建立" in draft.text
+    assert "載入 Development 草稿" not in dashboard.text
+    assert "research-plan-select" not in dashboard.text
+    assert "標記等待 AI 優化" in dashboard.text
+    queued = client.post("/strategy-optimizations/enqueue", data={"strategy_key": version.strategy_key})
+    assert queued.status_code == 200
+    assert "等待 AI 優化" in queued.text
 
 
 def test_market_period_and_research_stage_do_not_create_strategy_versions(
@@ -299,9 +282,9 @@ def test_market_period_and_research_stage_do_not_create_strategy_versions(
     assert "沿用 V1" in validation.text
 
     dashboard = client.get("/")
-    assert 'id="adjustment-visible-count">1</strong> / 1 筆紀錄' in dashboard.text
+    assert 'id="adjustment-visible-count">1</strong> / 1 個版本' in dashboard.text
     assert 'id="history-visible-count">2</strong> / 2 筆紀錄' in dashboard.text
-    assert "2 次實驗" in dashboard.text
+    assert "2 筆回測" in dashboard.text
 
 
 def test_dashboard_downloads_and_deletes_a_scoped_dataset(tmp_path, monkeypatch) -> None:
@@ -351,3 +334,39 @@ def test_dashboard_downloads_and_deletes_a_scoped_dataset(tmp_path, monkeypatch)
     )
     assert deleted.status_code == 303
     assert CandleRepository(database).list_coverage("binance") == []
+
+
+def test_download_warns_about_source_gap_and_backtest_identifies_it(tmp_path, monkeypatch) -> None:
+    database = tmp_path / "market.sqlite3"
+    monkeypatch.setenv("QUANT_DB_PATH", str(database))
+
+    class GappedProvider:
+        exchange_id = "binance"
+
+        def __init__(self, exchange_id: str) -> None:
+            pass
+
+        def fetch_ohlcv(self, symbol, timeframe, since_ms, limit):
+            step = TIMEFRAMES_MS[timeframe]
+            return [
+                [i * step, 100, 102, 99, 101, 10]
+                for i in range(6) if i != 3 and i * step >= since_ms
+            ][:limit]
+
+    monkeypatch.setattr("app.api.routes.dashboard.CcxtHistoricalProvider", GappedProvider)
+    client = TestClient(app)
+    response = client.post("/data/download", data={
+        "symbol": "BTC/USDT", "timeframe": "4h",
+        "since": "1970-01-01", "until": "1970-01-02",
+    })
+    assert response.status_code == 200
+    assert "kind=warning" in str(response.url)
+    assert "1970-01-01 12:00 UTC" in response.text
+    assert "來源缺漏" in response.text
+    result = client.get("/backtests/run", params={
+        "symbol": "BTC/USDT", "timeframe": "4h", "strategy": "buy-hold",
+        "since": "1970-01-01", "until": "1970-01-02",
+    })
+    assert result.status_code == 422
+    assert "1970-01-01 12:00 UTC" in result.text
+    assert CandleRepository(database).list_coverage("binance")[0].candle_count == 5

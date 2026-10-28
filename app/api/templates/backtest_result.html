@@ -2,7 +2,7 @@
 {% block title %}回測結果 · Quant Console{% endblock %}
 {% block content %}
 <section class="result-title">
-  <div><a class="back" href="/">← 返回總覽</a><p class="eyebrow">BACKTEST RESULT</p><h1>{{ result.symbol }} <span>{{ result.timeframe }}</span></h1><p>{{ result.strategy_name }} · {{ first_date }} 至 {{ last_date }} · {{ "{:,}".format(candle_count) }} 根 K 線</p></div>
+  <div>{% if saved_view %}<a class="back" href="/strategies/{{ saved_run.strategy_key }}/backtests">← 返回此版本回測</a>{% else %}<a class="back" href="/">← 返回總覽</a>{% endif %}<p class="eyebrow">BACKTEST RESULT</p><h1>{{ result.symbol }} <span>{{ result.timeframe }}</span></h1><p>{{ result.strategy_name }} · {{ first_date }} 至 {{ last_date }} · {{ "{:,}".format(candle_count) }} 根 K 線</p></div>
   <div class="return {{ 'positive' if metrics.total_return >= 0 else 'negative' }}"><span>總報酬</span><strong>{{ "%+.2f"|format(metrics.total_return * 100) }}%</strong></div>
 </section>
 
@@ -17,40 +17,39 @@
   <article><span>止損</span><strong>{{ "%.2f"|format(values.stop_loss_pct) }}%</strong></article>
   <article><span>止盈</span><strong>{{ "%.2f"|format(values.take_profit_pct) }}%</strong></article>
   <article><span>槓桿</span><strong>{{ "%.1f"|format(values.leverage) }}x</strong></article>
-  <article><span>研究階段</span><strong>{{ values.stage }}</strong></article>
+  <article><span>策略版本</span><strong>V{{ saved_version }}</strong></article>
 </section>
-{% if saved_duplicate %}
+{% if saved_view %}
+<p class="saved-note">已保存的回測結果 · {{ '原始快照' if snapshot_source == 'original' else '舊紀錄依原始資料指紋重現後補存' }} · {{ saved_run.run_key[:10] }}{% if values.note %} · {{ values.note }}{% endif %}</p>
+{% elif saved_duplicate %}
 <div class="notice warning"><strong>重複設定／實驗：</strong>完全相同的資料、策略參數、風險設定與研究階段已存在。此次沿用{% if saved_version %} V{{ saved_version }}{% else %}既有策略{% endif %}，沒有建立新實驗，也沒有建立新版本。</div>
 {% elif saved_strategy_created %}
 <p class="saved-note">已建立{% if saved_version %}策略版本 V{{ saved_version }} · {% endif %}{{ values.stage }} · 實驗 <span class="mono">{{ saved_run.run_key[:10] }}</span>{% if values.note %} · {{ values.note }}{% endif %}</p>
 {% else %}
 <p class="saved-note">策略參數未變更，沿用{% if saved_version %} V{{ saved_version }}{% else %}既有策略{% endif %} · 已新增 {{ values.stage }} 回測實驗 <span class="mono">{{ saved_run.run_key[:10] }}</span>{% if values.note %} · {{ values.note }}{% endif %}</p>
 {% endif %}
-<p class="form-note">績效只計算 {{ values.since }} 至 {{ values.until }}；另外使用區間前 {{ warmup_count }} 根 K 線計算指標{% if warmup_count < warmup_required %}（完整暖機需要 {{ warmup_required }} 根，目前資料不足，策略會延後產生訊號）{% endif %}。</p>
+<p class="form-note">{% if values.strategy == "intraday" %}多週期短線 {{ values.intraday_entry }}{% if values.intraday_strong_close %}；上漲強收盤確認{% endif %}；最低ATR {{ values.intraday_min_atr_pct }}%；ATR14×2初始止損（固定SL欄位停用） · {% endif %}每日進場上限 {{ values.max_entries_per_day or "不限" }} · 最長持倉 {{ values.max_holding_bars or "不限" }} 根 · {% if values.higher_timeframe_filter %}4H SMA20/60方向＋1H訊號 · {% endif %}單筆資金風險 {{ values.risk_per_trade_pct }}%（0 表示舊版倉位）{% if values.risk_regime == "loss_streak" %} · 連虧兩筆後減半，獲利後恢復{% endif %}{% if values.risk_regime == "slow_slope" %} · 180 均線走平／下降時風險減半{% endif %} · 最大名目曝險 {{ values.max_exposure_pct }}% · 出場 {{ values.exit_mode }}{% if values.exit_mode == 'signal' %}：忽略固定止盈，保護止損仍有效{% endif %} · 追蹤啟動 {{ values.trailing_activation_pct or 0 }}%／距離 {{ values.trailing_distance_pct or 0 }}%（收盤更新、下一根生效） · 追蹤後再入：{{ "回檔24均線後站回且180均線向上" if values.trailing_reentry_mode == "pullback_reclaim" else "收盤突破退出高點或空頭訊號重置" if values.trailing_reentry_mode == "exit_high_breakout" else "沿用止損規則" }} · 均線門檻 {{ values.trend_entry_buffer_pct or 0 }}% · 止損後{{ "等訊號重置" if values.stop_reentry_mode == "signal_reset" else "可重新進場" }} · 同一版本可自由更換日期回測</p>
+{% if saved_view %}<p class="form-note">回測期間 {{ values.since }} 至 {{ values.until }}（結束日期不包含當日）。此頁讀取已保存的績效、曲線與交易紀錄，不會新增回測。</p>{% else %}<p class="form-note">績效只計算 {{ values.since }} 至 {{ values.until }}；另外使用區間前 {{ warmup_count }} 根 K 線計算指標{% if warmup_count < warmup_required %}（完整暖機需要 {{ warmup_required }} 根，目前資料不足，策略會延後產生訊號）{% endif %}。</p>{% endif %}
 
-{% if values.stage == "development" %}
 <section class="panel optimization-cta">
-  <div><p class="eyebrow">SKILL OPTIMIZATION</p><h2>將 V{{ saved_version or "?" }} 交給 Skill 優化</h2><p>此版本已儲存為 Development，可以直接加入策略優化佇列。</p></div>
+  <div><p class="eyebrow">AI OPTIMIZATION</p><h2>讓 AI 優化 V{{ saved_version or "?" }}</h2><p>此版本目前有 {{ version_run_count }} 筆回測。標記後，Agent 會檢查該版本的回測紀錄，保存修改原因與下一版結果。本頁不直接呼叫 AI。</p></div>
   <form action="/strategy-optimizations/enqueue" method="post">
-    <input type="hidden" name="run_key" value="{{ saved_run.run_key }}">
+    <input type="hidden" name="strategy_key" value="{{ saved_run.strategy_key }}">
     <label>優化目標<input name="objective" type="text" maxlength="300" placeholder="例如：降低最大回撤並維持報酬"></label>
-    <button type="submit">交給 Skill 優化</button>
+    <button type="submit">標記等待 AI 優化</button>
   </form>
-</section>
-{% endif %}
-
-<section class="panel advisor-panel">
-  <div class="section-head"><div><p class="eyebrow">RESEARCH ADVISOR</p><h2>下一版研究建議</h2></div><span>{{ advice.decision }}</span></div>
-  <h3>{{ advice.headline }}</h3>
-  <p>{{ advice.explanation }}</p>
-  <div class="advisor-evidence">{% for item in advice.evidence %}<span class="tag">{{ item }}</span>{% endfor %}</div>
-  <p><strong>驗證方式：</strong>{{ advice.validation_plan }}</p>
-  {% if advice_url %}<a class="button" href="{{ advice_url }}">載入下一版候選設定</a>{% endif %}
 </section>
 
 <section class="panel chart-panel">
   <div class="section-head"><div><p class="eyebrow">EQUITY</p><h2>資產曲線</h2></div><span>起始 {{ "{:,.0f}".format(result.initial_cash) }} USDT</span></div>
   <svg class="chart" viewBox="0 0 900 260" preserveAspectRatio="none" role="img" aria-label="資產曲線"><polyline class="chart-line" points="{{ chart_points }}"/></svg>
+</section>
+
+<section class="panel">
+  <div class="section-head"><h2>年度績效</h2><span>延續持倉，不逐年重設資金；首尾年可能不足一年</span></div>
+  <div class="table-wrap"><table><thead><tr><th>年份</th><th>年度報酬</th><th>年內最大回撤</th><th>年末資產</th></tr></thead><tbody>
+  {% for row in annual_performance %}<tr><td>{{ row.year }}</td><td>{{ "%+.2f"|format(row.total_return * 100) }}%</td><td>{{ "%.2f"|format(row.maximum_drawdown * 100) }}%</td><td>{{ "%.2f"|format(row.final_equity) }}</td></tr>{% endfor %}
+  </tbody></table></div>
 </section>
 
 <section class="panel">

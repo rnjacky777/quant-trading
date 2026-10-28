@@ -11,13 +11,21 @@ Status: baseline implemented.
 - Signal on completed candle, execution at next open
 - Trading fee and adverse slippage on both sides
 - SMA trend and buy-and-hold benchmark
+- Momentum and mean-reversion baselines through CLI and dashboard
+- Persisted experiment and risk/exit policy identities, including CLI runs
+- Cost-aware per-trade risk sizing, cash and single-market exposure caps at 1x
+- Fixed-target vs strategy-signal exits with protective stops
+- Immutable research windows and consumed-holdout checks
+- Continuous annual performance attribution
+- Free-form version/date backtesting with immutable saved-version settings
+- Version-level waiting-AI queue, complete evidence audit and per-period child comparisons
 - Return, CAGR, Sharpe, Sortino, drawdown, trade, exposure, fee, and slippage metrics
 - Reject incomplete candle sequences
 
 Next gates:
 
-- Persist immutable run configuration and results
-- Add development/validation/locked-holdout labels
+- ATR/support-based invalidation rules and portfolio-wide risk limits
+- Drawdown, daily-loss and consecutive-loss circuit breakers
 - Add parameter sensitivity and walk-forward comparison
 - Add portfolio backtests for BTC/ETH
 

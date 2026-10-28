@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block title %}回測結果 · Quant Console{% endblock %}
+{% block content %}
+<a class="back" href="/strategies/{{ entry.run.strategy_key }}/backtests">← 返回此版本回測</a>
+<section class="result-title"><div><p class="eyebrow">SAVED BACKTEST</p><h1>{{ entry.run.symbol }} <span>V{{ entry.version }}</span></h1><p>{{ format_date(entry.run.since_ms) }} ～ {{ format_date(entry.run.until_ms + intervals[entry.run.timeframe]) }}</p></div></section>
+<div class="notice warning">{{ entry.error }}。原始摘要仍保留；無法還原的資產曲線與交易明細不會補造。</div>
+<section class="grid stats"><article><span>最終資產</span><strong>{{ "{:,.2f}".format(entry.run.final_equity) }}</strong></article><article><span>總報酬</span><strong>{{ "%+.2f"|format(entry.run.total_return*100) }}%</strong></article><article><span>最大回撤</span><strong>{{ "%.2f"|format(entry.run.maximum_drawdown*100) }}%</strong></article><article><span>交易數</span><strong>{{ entry.run.number_of_trades }}</strong></article></section>
+{% endblock %}

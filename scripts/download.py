@@ -17,7 +17,7 @@ def utc_milliseconds(value: str) -> int:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Download closed crypto candles")
     parser.add_argument("--symbol", choices=["BTC/USDT", "ETH/USDT"], required=True)
-    parser.add_argument("--timeframe", choices=["4h", "1d"], required=True)
+    parser.add_argument("--timeframe", choices=["1h", "4h", "1d"], required=True)
     parser.add_argument("--since", type=utc_milliseconds, required=True)
     parser.add_argument("--until", type=utc_milliseconds, required=True)
     args = parser.parse_args()

@@ -90,3 +90,18 @@ def test_margin_brackets_apply_cumulative_maintenance_amount() -> None:
         MarginBracket(10_000, 50_000, 0.01, 50),
     ])
     assert model.maintenance_margin(200, 100) == pytest.approx(150)
+
+
+def test_perpetual_trailing_requires_derivative_inputs_and_uses_next_bar_stop() -> None:
+    config = BacktestConfig(fee_bps=0,slippage_bps=0,leverage=2,market_type="perpetual",
+                            stop_loss_pct=0.05,trailing_activation=0.05,trailing_distance=0.05)
+    bars = [candle(0,100),Candle("binance","BTC/USDT","1d",STEP,100,111,99,110,1),
+            Candle("binance","BTC/USDT","1d",2*STEP,110,111,103,105,1)]
+    with pytest.raises(ValueError,match="requires funding"):
+        BacktestEngine(config).run(bars,AlwaysLong())
+    result = BacktestEngine(config).run(bars,AlwaysLong(),funding_rates=[],
+        mark_prices=[mark(1,100,111,99,110),mark(2,110,111,103,105)],margin_model=margin_model())
+    assert result.trades[0].exit_reason=="trailing_stop"
+    assert result.trades[0].exit_timestamp_ms==2*STEP
+    assert result.trades[0].exit_price==pytest.approx(104.5)
+    assert result.final_equity==pytest.approx(10900)

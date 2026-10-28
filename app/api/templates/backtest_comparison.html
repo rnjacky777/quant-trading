@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}回測比較 · Quant Console{% endblock %}
+{% block content %}
+<a class="back" href="{{ selection_url or '/backtests/select' }}">← 返回區間與回測選擇</a>
+<section class="result-title"><div><p class="eyebrow">BACKTEST COMPARISON</p><h1>回測比較</h1><p>並排查看已保存的績效與資產曲線</p></div></section>
+{% if error %}<div class="notice error">{{ error }}</div>{% else %}
+{% for warning in warnings %}<div class="notice warning">{{ warning }}</div>{% endfor %}
+<div class="comparison-cards">
+{% for entry in entries %}{% set run = entry.run %}<article class="panel comparison-card comparison-{{ loop.index0 }}">
+  <p class="eyebrow">{{ 'A' if loop.first else 'B' }} · {{ run.symbol }} · {{ run.timeframe }}</p>
+  <h2>{{ run.strategy_name }} · V{{ entry.version or '?' }}</h2>
+  <p>{{ format_date(run.since_ms) }} ～ {{ format_date(run.until_ms + intervals[run.timeframe]) }}<span class="muted">（結束不含當日）</span></p>
+  <div class="comparison-profit {{ 'positive' if run.final_equity >= run.initial_cash else 'negative' }}">{{ "{:+,.2f}".format(run.final_equity-run.initial_cash) }} <small>USDT 淨盈虧</small></div>
+  <p class="muted">手續費 {{ run.fee_bps }} bps · 滑價 {{ run.slippage_bps }} bps · {{ run.leverage }}x<br>SL {{ "%.1f"|format((run.stop_loss_pct or 0)*100) }}% · TP {{ "%.1f"|format((run.take_profit_pct or 0)*100) }}%</p>
+  {% set policy = policies[loop.index0] %}<p class="muted">追蹤止損：{% if policy.get('trailing_activation') %}+{{ "%.1f"|format(policy.trailing_activation * 100) }}% 收盤啟動 · 距最高收盤 {{ "%.1f"|format(policy.trailing_distance * 100) }}% · 下一根生效 · 再進場{{ "可收盤突破退出高點解鎖" if policy.get("trailing_reentry_mode") == "exit_high_breakout" else "沿用止損規則" }}{% else %}停用{% endif %}</p>
+  <p class="muted">{{ '原始結果快照' if entry.source == 'original' else '舊結果依原指紋重現後補存' if entry.source == 'reproduced' else '僅有原始摘要，曲線不可用' }} · {{ run.run_key[:10] }}</p>
+  <a class="small-link" href="/backtests/results/{{ run.run_key }}">查看單筆結果 →</a>
+  {% if entry.error %}<p class="notice warning">{{ entry.error }}</p>{% endif %}
+</article>{% endfor %}
+</div>
+<section class="panel">
+  <div class="section-head"><div><p class="eyebrow">EQUITY</p><h2>資產曲線比較</h2></div></div>
+  <form class="comparison-mode" action="/backtests/compare" method="get">
+    {% for entry in entries %}<input type="hidden" name="run_keys" value="{{ entry.run.run_key }}">{% endfor %}
+    <label>顯示方式 <select name="chart_mode"><option value="equity" {{ 'selected' if chart_mode == 'equity' }}>資產金額（USDT）</option><option value="indexed" {{ 'selected' if chart_mode == 'indexed' }}>資產指數（起始 100）</option></select></label><button class="small-action" type="submit">切換</button>
+  </form>
+  <div class="comparison-legend"><span class="comparison-0">● A · {{ entries[0].run.strategy_name }} V{{ entries[0].version }}</span><span class="comparison-1">● B · {{ entries[1].run.strategy_name }} V{{ entries[1].version }}</span></div>
+  {% if chart.series %}<svg class="comparison-chart" viewBox="0 0 960 300" role="img" aria-label="兩筆回測的資產曲線，按實際時間與共同縱軸繪製">
+    <line x1="80" y1="25" x2="930" y2="25"/><line x1="80" y1="260" x2="930" y2="260"/>
+    <text x="70" y="30" text-anchor="end">{{ "{:,.1f}".format(chart.high) }}</text><text x="70" y="265" text-anchor="end">{{ "{:,.1f}".format(chart.low) }}</text>
+    <text x="80" y="290">{{ chart.start }}</text><text x="930" y="290" text-anchor="end">{{ chart.end }}</text>
+    {% for series in chart.series %}<polyline class="comparison-line comparison-line-{{ series.index }}" points="{{ series.points }}"/>{% endfor %}
+  </svg>{% else %}<p class="empty">兩筆舊紀錄均無可用曲線；原始摘要仍保留於下方。</p>{% endif %}
+  <p class="muted">共用時間軸與縱軸；不同期間不會被平移對齊。資產指數僅用於比較相對報酬。滑價已反映於成交價，淨盈虧不會再重複扣除。</p>
+</section>
+<section class="panel"><div class="section-head"><h2>績效比較</h2><span>成本已反映於結果</span></div><div class="table-wrap"><table class="comparison-metrics"><thead><tr><th>指標</th><th class="right comparison-0">A</th><th class="right comparison-1">B</th></tr></thead><tbody>{% for row in rows %}<tr><td>{{ row.label }}</td><td class="right mono">{{ row["values"][0] }}</td><td class="right mono">{{ row["values"][1] }}</td></tr>{% endfor %}</tbody></table></div></section>
+<section class="panel"><div class="section-head"><h2>交給 AI／skill 判斷</h2><a href="/comparison-reviews">查看判斷任務 →</a></div>
+<p class="muted">新版不一定比較好。AI 會參考兩筆回測的收益、回撤、成本與設定差異；此操作保存比較證據並標記等待判斷。</p>
+{% for review in reviews %}<p><a href="/comparison-reviews#review-{{ review.request_id }}">比較 #{{ review.request_id }} · {{ {'pending':'等待 AI 判斷','completed':'已完成判斷','cancelled':'已取消'}[review.status] }}</a></p>{% endfor %}
+<form action="/comparison-reviews" method="post">
+{% for entry in entries %}<input type="hidden" name="run_keys" value="{{ entry.run.run_key }}">{% endfor %}
+<label>想請 AI 判斷什麼？<textarea name="objective" rows="3" maxlength="1000" placeholder="例如：V1 收益比 V2 高，V2 的回撤改善是否值得？" style="width:100%"></textarea></label>
+<button class="small-action" type="submit">標記等待 AI 判斷</button>
+</form></section>
+{% endif %}
+{% endblock %}

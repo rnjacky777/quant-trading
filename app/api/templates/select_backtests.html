@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}同區間策略比較 · Quant Console{% endblock %}
+{% block content %}
+<a class="back" href="/#backtest-history">← 返回回測紀錄</a>
+<section class="result-title"><div><p class="eyebrow">STRATEGY COMPARISON</p><h1>同區間，策略比較</h1><p>選一個回測區間，查看所有已有結果，再勾選兩筆比較。</p></div></section>
+<section class="panel">
+  <div class="section-head"><h2>1 · 選擇一個區間</h2><span>UTC · 結束日期不包含當日</span></div>
+  <form action="/backtests/select" method="get" class="backtest-form single-period-form" id="comparison-period-form">
+    <label>交易對<select name="symbol"><option {{ 'selected' if symbol == 'BTC/USDT' }}>BTC/USDT</option><option {{ 'selected' if symbol == 'ETH/USDT' }}>ETH/USDT</option></select></label>
+    <label>K 線週期<select name="timeframe"><option value="1h" {{ 'selected' if timeframe == '1h' }}>1H</option><option value="4h" {{ 'selected' if timeframe == '4h' }}>4H</option><option value="1d" {{ 'selected' if timeframe == '1d' }}>1D</option></select></label>
+    <label>開始日期<input type="date" name="since" value="{{ since_value }}" required></label>
+    <label>結束日期（不包含）<input type="date" name="until" value="{{ until_value }}" required></label>
+    <button type="submit">查看此區間 →</button>
+  </form>
+</section>
+{% if error %}<div class="notice warning">{{ error }}</div>{% endif %}
+{% if selected_period %}
+<section class="panel">
+  <div class="section-head"><div><p class="eyebrow">2 · 勾選兩筆回測</p><h2>{{ selected_period.label }}</h2></div><span>{{ experiments|length }} 筆回測 · {{ version_count }} 個策略版本</span></div>
+  <p class="muted">以下全部屬於同一區間、交易對與 K 線週期。同版本的不同回測設定各自保留；資金、成本或風控差異會在比較頁提示。</p>
+  <form action="/backtests/compare" method="get" id="period-comparison-selection">
+    <div class="table-wrap"><table class="period-candidates"><thead><tr><th>選擇</th><th>策略／版本</th><th class="right">本金</th><th class="right">淨盈虧</th><th class="right">報酬</th><th class="right">最大回撤</th><th class="right">交易數</th><th></th></tr></thead><tbody>
+    {% for item in experiments %}{% set run = item.run %}<tr>
+      <td><input class="compare-select" type="checkbox" name="run_keys" value="{{ run.run_key }}" data-label="{{ item.strategy_label }} V{{ item.version_number }} · {{ run.run_key[:8] }}" aria-label="選擇 {{ item.strategy_label }} V{{ item.version_number }} {{ run.run_key[:8] }}"></td>
+      <td><strong>{{ item.strategy_label }} <span class="tag">V{{ item.version_number }}</span></strong><small class="muted period-run-meta">{{ run.strategy_name }}<br>費用 {{ run.fee_bps }} bps · 滑價 {{ run.slippage_bps }} bps</small></td>
+      <td class="right mono">{{ "{:,.0f}".format(run.initial_cash) }}</td>
+      <td class="right mono {{ 'positive' if run.final_equity >= run.initial_cash else 'negative' }}">{{ "{:+,.2f}".format(run.final_equity-run.initial_cash) }}</td>
+      <td class="right mono">{{ "%+.2f"|format(run.total_return*100) }}%</td>
+      <td class="right mono negative">{{ "%.2f"|format(run.maximum_drawdown*100) }}%</td><td class="right mono">{{ run.number_of_trades }}</td>
+      <td><a class="secondary-link" href="{{ item.result_url }}" target="_blank" rel="noopener">查看結果 ↗</a></td>
+    </tr>{% endfor %}
+    </tbody></table></div>
+    <div class="comparison-toolbar period-selection-bar"><div><strong data-period-selection-status>已選 0 / 2 筆</strong><p class="muted" data-period-selected-labels>例如勾選 V1 與 V3，再按比較。</p></div><button class="small-action" type="submit" disabled>比較所選兩筆 →</button></div>
+  </form>
+  {% if experiments|length < 2 %}<p class="notice warning">此區間{{ "沒有已保存的回測" if not experiments else "只有一筆結果" }}。先用另一策略／版本在相同日期完成回測，便能比較。</p>{% endif %}
+</section>
+{% elif not error %}<section class="panel"><p class="empty">這個交易對／週期尚無已保存的回測。請先到 dashboard 選擇策略與日期，執行並保存回測。</p><a class="small-link" href="/#backtest">前往回測 →</a></section>{% endif %}
+{% endblock %}

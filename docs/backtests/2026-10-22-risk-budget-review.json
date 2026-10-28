@@ -1,0 +1,700 @@
+{
+  "plan": {
+    "plan_id": "5ff9b6b201d2dacb183b03bacbf3ff16819be164e1c6ed0d69657d7fe1802f8e",
+    "name": "BTC 4h 風險倉位研究 2026-10-22",
+    "created_at_ms": 1792658924246,
+    "development_since": 1583020800000,
+    "development_until": 1672531200000,
+    "validation_since": 1672531200000,
+    "validation_until": 1790726400000,
+    "holdout_since": 1792713600000,
+    "holdout_until": 1808438400000,
+    "note": "歷史開發與驗證均已查看，只作回溯比較；保留區間為未來資料。固定單筆資金風險0.5%，先只改倉位，出場模式保持fixed。",
+    "holdout_used": 0
+  },
+  "saved_evidence": [
+    {
+      "run_key": "4828029b718f4c1a7f3d2097abf5bf9636a4444ed43295a1addd14349c4a07a6",
+      "strategy_key": "a40902453abd936097f59a29928431c0bc124cd253364f4b5579eca4f7d7a87c",
+      "stage": "development",
+      "since": "2020-03-01T00:00:00+00:00",
+      "until_exclusive": "2026-09-30T00:00:00+00:00",
+      "metrics": {
+        "total_return": 0.7002115260183517,
+        "cagr": 0.0839800760495919,
+        "sharpe_ratio": 0.4013944118231343,
+        "sortino_ratio": 0.5816884242580725,
+        "maximum_drawdown": -0.6843783994128831,
+        "win_rate": 0.409375,
+        "profit_factor": 1.0545765607508226,
+        "average_win": 1032.83253423524,
+        "average_loss": -678.830405950439,
+        "number_of_trades": 320,
+        "exposure": 0.5177816291161178,
+        "fees": 10432.271618284796,
+        "slippage": 5216.141471773921,
+        "net_funding": 0.0,
+        "liquidation_fees": 0.0,
+        "liquidation_count": 0,
+        "maximum_margin_ratio": 0.0
+      },
+      "final_equity": 17002.115260183517,
+      "annual": [
+        {
+          "year": 2020,
+          "total_return": 0.9306227090028123,
+          "maximum_drawdown": -0.25545137959742026,
+          "final_equity": 19306.227090028122
+        },
+        {
+          "year": 2021,
+          "total_return": -0.1132070062938586,
+          "maximum_drawdown": -0.48209975330979904,
+          "final_equity": 17120.626918336646
+        },
+        {
+          "year": 2022,
+          "total_return": -0.3838088519019597,
+          "maximum_drawdown": -0.479813334582015,
+          "final_equity": 10549.578756968072
+        },
+        {
+          "year": 2023,
+          "total_return": 0.3525917699218091,
+          "maximum_drawdown": -0.2844512707286574,
+          "final_equity": 14269.273402816963
+        },
+        {
+          "year": 2024,
+          "total_return": 0.155034420839693,
+          "maximum_drawdown": -0.40212865613474125,
+          "final_equity": 16481.501940625927
+        },
+        {
+          "year": 2025,
+          "total_return": -0.18838432367157976,
+          "maximum_drawdown": -0.2922177409776241,
+          "final_equity": 13376.645344449282
+        },
+        {
+          "year": 2026,
+          "total_return": 0.2710298301538394,
+          "maximum_drawdown": -0.1410552080096279,
+          "final_equity": 17002.115260183517
+        }
+      ],
+      "exit_reasons": {
+        "stop_loss": 113,
+        "signal": 131,
+        "take_profit": 76
+      },
+      "planned_risk_breaches": 0,
+      "policy": {}
+    },
+    {
+      "run_key": "d2c17eae00e745cfedc0caf590eca3616f6dc8f6b74a5e8e271771897341369e",
+      "strategy_key": "a40902453abd936097f59a29928431c0bc124cd253364f4b5579eca4f7d7a87c",
+      "stage": "development",
+      "since": "2020-03-01T00:00:00+00:00",
+      "until_exclusive": "2026-09-30T00:00:00+00:00",
+      "metrics": {
+        "total_return": 0.7002115260183517,
+        "cagr": 0.0839800760495919,
+        "sharpe_ratio": 0.4013944118231343,
+        "sortino_ratio": 0.5816884242580725,
+        "maximum_drawdown": -0.6843783994128831,
+        "win_rate": 0.409375,
+        "profit_factor": 1.0545765607508226,
+        "average_win": 1032.83253423524,
+        "average_loss": -678.830405950439,
+        "number_of_trades": 320,
+        "exposure": 0.5177816291161178,
+        "fees": 10432.271618284796,
+        "slippage": 5216.141471773921,
+        "net_funding": 0.0,
+        "liquidation_fees": 0.0,
+        "liquidation_count": 0,
+        "maximum_margin_ratio": 0.0
+      },
+      "final_equity": 17002.115260183517,
+      "annual": [
+        {
+          "year": 2020,
+          "total_return": 0.9306227090028123,
+          "maximum_drawdown": -0.25545137959742026,
+          "final_equity": 19306.227090028122
+        },
+        {
+          "year": 2021,
+          "total_return": -0.1132070062938586,
+          "maximum_drawdown": -0.48209975330979904,
+          "final_equity": 17120.626918336646
+        },
+        {
+          "year": 2022,
+          "total_return": -0.3838088519019597,
+          "maximum_drawdown": -0.479813334582015,
+          "final_equity": 10549.578756968072
+        },
+        {
+          "year": 2023,
+          "total_return": 0.3525917699218091,
+          "maximum_drawdown": -0.2844512707286574,
+          "final_equity": 14269.273402816963
+        },
+        {
+          "year": 2024,
+          "total_return": 0.155034420839693,
+          "maximum_drawdown": -0.40212865613474125,
+          "final_equity": 16481.501940625927
+        },
+        {
+          "year": 2025,
+          "total_return": -0.18838432367157976,
+          "maximum_drawdown": -0.2922177409776241,
+          "final_equity": 13376.645344449282
+        },
+        {
+          "year": 2026,
+          "total_return": 0.2710298301538394,
+          "maximum_drawdown": -0.1410552080096279,
+          "final_equity": 17002.115260183517
+        }
+      ],
+      "exit_reasons": {
+        "stop_loss": 113,
+        "signal": 131,
+        "take_profit": 76
+      },
+      "planned_risk_breaches": 0,
+      "policy": {}
+    },
+    {
+      "run_key": "783c2ccd0b9dc8bd0c26cc584bba16d3f16bb3a6411ebdc34119e65c2fb5887b",
+      "strategy_key": "a40902453abd936097f59a29928431c0bc124cd253364f4b5579eca4f7d7a87c",
+      "stage": "validation",
+      "since": "2020-03-01T00:00:00+00:00",
+      "until_exclusive": "2022-12-30T00:00:00+00:00",
+      "metrics": {
+        "total_return": 0.05495787569680721,
+        "cagr": 0.019078337060587147,
+        "sharpe_ratio": 0.2757593365768896,
+        "sortino_ratio": 0.3999077392072892,
+        "maximum_drawdown": -0.6843783994128831,
+        "win_rate": 0.4098360655737705,
+        "profit_factor": 1.0062096126902467,
+        "average_win": 1187.3879113484459,
+        "average_loss": -819.4862462422722,
+        "number_of_trades": 183,
+        "exposure": 0.5053988718775181,
+        "fees": 6474.092960640374,
+        "slippage": 3237.04904550003,
+        "net_funding": 0.0,
+        "liquidation_fees": 0.0,
+        "liquidation_count": 0,
+        "maximum_margin_ratio": 0.0
+      },
+      "final_equity": 10549.578756968072,
+      "annual": [
+        {
+          "year": 2020,
+          "total_return": 0.9306227090028123,
+          "maximum_drawdown": -0.25545137959742026,
+          "final_equity": 19306.227090028122
+        },
+        {
+          "year": 2021,
+          "total_return": -0.1132070062938586,
+          "maximum_drawdown": -0.48209975330979904,
+          "final_equity": 17120.626918336646
+        },
+        {
+          "year": 2022,
+          "total_return": -0.3838088519019597,
+          "maximum_drawdown": -0.479813334582015,
+          "final_equity": 10549.578756968072
+        }
+      ],
+      "exit_reasons": {
+        "stop_loss": 78,
+        "signal": 58,
+        "take_profit": 47
+      },
+      "planned_risk_breaches": 0,
+      "policy": {}
+    },
+    {
+      "run_key": "4a92d348c53a7647728de08fb129fe1df32e4eff1a693531f45f7767acba8fe1",
+      "strategy_key": "a40902453abd936097f59a29928431c0bc124cd253364f4b5579eca4f7d7a87c",
+      "stage": "validation",
+      "since": "2022-01-01T00:00:00+00:00",
+      "until_exclusive": "2023-12-30T00:00:00+00:00",
+      "metrics": {
+        "total_return": -0.16654492438391988,
+        "cagr": -0.08734791567697542,
+        "sharpe_ratio": -0.11395818377943684,
+        "sortino_ratio": -0.16367410281610606,
+        "maximum_drawdown": -0.47981333458201525,
+        "win_rate": 0.375,
+        "profit_factor": 0.8889109003661874,
+        "average_win": 444.2187972643302,
+        "average_loss": -299.84026323538205,
+        "number_of_trades": 80,
+        "exposure": 0.4765392538338292,
+        "fees": 1308.6655456000747,
+        "slippage": 654.3328471872543,
+        "net_funding": 0.0,
+        "liquidation_fees": 0.0,
+        "liquidation_count": 0,
+        "maximum_margin_ratio": 0.0
+      },
+      "final_equity": 8334.550756160801,
+      "annual": [
+        {
+          "year": 2022,
+          "total_return": -0.3838088519019599,
+          "maximum_drawdown": -0.47981333458201525,
+          "final_equity": 6161.9114809804005
+        },
+        {
+          "year": 2023,
+          "total_return": 0.35259176992180996,
+          "maximum_drawdown": -0.28445127072865684,
+          "final_equity": 8334.550756160801
+        }
+      ],
+      "exit_reasons": {
+        "signal": 42,
+        "take_profit": 15,
+        "stop_loss": 23
+      },
+      "planned_risk_breaches": 0,
+      "policy": {}
+    },
+    {
+      "run_key": "848910a883e8c2400d37ea390676bff39b8a5f1a3123e24f90afeb0dfc97caad",
+      "strategy_key": "a40902453abd936097f59a29928431c0bc124cd253364f4b5579eca4f7d7a87c",
+      "stage": "validation",
+      "since": "2023-01-01T00:00:00+00:00",
+      "until_exclusive": "2024-12-30T00:00:00+00:00",
+      "metrics": {
+        "total_return": 0.5622900516041718,
+        "cagr": 0.25048986704043474,
+        "sharpe_ratio": 0.808613147362518,
+        "sortino_ratio": 1.1733439629544182,
+        "maximum_drawdown": -0.402128656134741,
+        "win_rate": 0.40229885057471265,
+        "profit_factor": 1.2195209135181486,
+        "average_win": 892.4948248239226,
+        "average_loss": -492.5849683229918,
+        "number_of_trades": 87,
+        "exposure": 0.5595428571428571,
+        "fees": 2373.532765861861,
+        "slippage": 1186.7686787312932,
+        "net_funding": 0.0,
+        "liquidation_fees": 0.0,
+        "liquidation_count": 0,
+        "maximum_margin_ratio": 0.0
+      },
+      "final_equity": 15622.900516041718,
+      "annual": [
+        {
+          "year": 2023,
+          "total_return": 0.35259176992180863,
+          "maximum_drawdown": -0.2844512707286573,
+          "final_equity": 13525.917699218087
+        },
+        {
+          "year": 2024,
+          "total_return": 0.1550344208396932,
+          "maximum_drawdown": -0.402128656134741,
+          "final_equity": 15622.900516041718
+        }
+      ],
+      "exit_reasons": {
+        "take_profit": 22,
+        "signal": 39,
+        "stop_loss": 26
+      },
+      "planned_risk_breaches": 0,
+      "policy": {}
+    },
+    {
+      "run_key": "2c22fc1d546bd82419755df626174f1b966bab04a76e7ece33d67549fcdffe75",
+      "strategy_key": "a40902453abd936097f59a29928431c0bc124cd253364f4b5579eca4f7d7a87c",
+      "stage": "validation",
+      "since": "2024-01-01T00:00:00+00:00",
+      "until_exclusive": "2025-12-30T00:00:00+00:00",
+      "metrics": {
+        "total_return": -0.052180733180016814,
+        "cagr": -0.026493576744685332,
+        "sharpe_ratio": 0.08622535680665933,
+        "sortino_ratio": 0.12023466619149369,
+        "maximum_drawdown": -0.46034261814003286,
+        "win_rate": 0.375,
+        "profit_factor": 0.9739766902357866,
+        "average_win": 650.990954612549,
+        "average_loss": -401.0307194035329,
+        "number_of_trades": 80,
+        "exposure": 0.5344,
+        "fees": 1721.2382003596192,
+        "slippage": 860.6196151923413,
+        "net_funding": 0.0,
+        "liquidation_fees": 0.0,
+        "liquidation_count": 0,
+        "maximum_margin_ratio": 0.0
+      },
+      "final_equity": 9478.192668199832,
+      "annual": [
+        {
+          "year": 2024,
+          "total_return": 0.155034420839693,
+          "maximum_drawdown": -0.40212865613474114,
+          "final_equity": 11550.34420839693
+        },
+        {
+          "year": 2025,
+          "total_return": -0.17940171330051569,
+          "maximum_drawdown": -0.2922177409776243,
+          "final_equity": 9478.192668199832
+        }
+      ],
+      "exit_reasons": {
+        "stop_loss": 26,
+        "take_profit": 16,
+        "signal": 38
+      },
+      "planned_risk_breaches": 0,
+      "policy": {}
+    },
+    {
+      "run_key": "2d1b82fbc62a1960ed55c0e1c6e19f2090318bf972e9afb3763435fd5d945ef0",
+      "strategy_key": "1209a05a790a6ede3450e15a72a8ecd627494ebb15ed63f07d7e2ee0d74c2f49",
+      "stage": "development",
+      "since": "2020-03-01T00:00:00+00:00",
+      "until_exclusive": "2026-09-30T00:00:00+00:00",
+      "metrics": {
+        "total_return": 0.10173134315730104,
+        "cagr": 0.014828702139436212,
+        "sharpe_ratio": 0.4069244374302598,
+        "sortino_ratio": 0.5900557277940108,
+        "maximum_drawdown": -0.09420776087949634,
+        "win_rate": 0.409375,
+        "profit_factor": 1.133492100480244,
+        "average_win": 65.9396160425832,
+        "average_loss": -40.32156756616604,
+        "number_of_trades": 320,
+        "exposure": 0.5177816291161178,
+        "fees": 655.4829917881855,
+        "slippage": 327.7419960286616,
+        "net_funding": 0.0,
+        "liquidation_fees": 0.0,
+        "liquidation_count": 0,
+        "maximum_margin_ratio": 0.0
+      },
+      "final_equity": 11017.313431573011,
+      "annual": [
+        {
+          "year": 2020,
+          "total_return": 0.07549178374931742,
+          "maximum_drawdown": -0.02745221953531707,
+          "final_equity": 10754.917837493174
+        },
+        {
+          "year": 2021,
+          "total_return": 0.0035896633763208285,
+          "maximum_drawdown": -0.055597559160705634,
+          "final_equity": 10793.524372169764
+        },
+        {
+          "year": 2022,
+          "total_return": -0.04102939886099466,
+          "maximum_drawdown": -0.05809215938463441,
+          "final_equity": 10350.672555588144
+        },
+        {
+          "year": 2023,
+          "total_return": 0.03447869407615167,
+          "maximum_drawdown": -0.03048003941306443,
+          "final_equity": 10707.550228114687
+        },
+        {
+          "year": 2024,
+          "total_return": 0.021165346743599933,
+          "maximum_drawdown": -0.04708702728800496,
+          "final_equity": 10934.179241467247
+        },
+        {
+          "year": 2025,
+          "total_return": -0.016667805848082473,
+          "maximum_drawdown": -0.03200852955122635,
+          "final_equity": 10751.930464762338
+        },
+        {
+          "year": 2026,
+          "total_return": 0.024682355199414863,
+          "maximum_drawdown": -0.014379604564768389,
+          "final_equity": 11017.313431573011
+        }
+      ],
+      "exit_reasons": {
+        "stop_loss": 113,
+        "signal": 131,
+        "take_profit": 76
+      },
+      "planned_risk_breaches": 0,
+      "policy": {
+        "exit_mode": "fixed",
+        "max_exposure_fraction": 1.0,
+        "position_fraction": 1.0,
+        "risk_per_trade": 0.005
+      }
+    }
+  ],
+  "fixed_period_comparisons": [
+    {
+      "version": "V1",
+      "run_key": "bfc3418a3284156dd93e1bb19be39be5d38ccb2fc8f9f910c48b00ccd1dbce33",
+      "strategy_key": "a40902453abd936097f59a29928431c0bc124cd253364f4b5579eca4f7d7a87c",
+      "stage": "development",
+      "since": "2020-03-01T00:00:00+00:00",
+      "until_exclusive": "2023-01-01T00:00:00+00:00",
+      "metrics": {
+        "total_return": 0.05495787569680721,
+        "cagr": 0.019041157850618884,
+        "sharpe_ratio": 0.2754930646640211,
+        "sortino_ratio": 0.39952154139706053,
+        "maximum_drawdown": -0.6843783994128831,
+        "win_rate": 0.4098360655737705,
+        "profit_factor": 1.0062096126902467,
+        "average_win": 1187.3879113484459,
+        "average_loss": -819.4862462422722,
+        "number_of_trades": 183,
+        "exposure": 0.5044233553160689,
+        "fees": 6474.092960640374,
+        "slippage": 3237.04904550003,
+        "net_funding": 0.0,
+        "liquidation_fees": 0.0,
+        "liquidation_count": 0,
+        "maximum_margin_ratio": 0.0
+      },
+      "final_equity": 10549.578756968072,
+      "annual": [
+        {
+          "year": 2020,
+          "total_return": 0.9306227090028123,
+          "maximum_drawdown": -0.25545137959742026,
+          "final_equity": 19306.227090028122
+        },
+        {
+          "year": 2021,
+          "total_return": -0.1132070062938586,
+          "maximum_drawdown": -0.48209975330979904,
+          "final_equity": 17120.626918336646
+        },
+        {
+          "year": 2022,
+          "total_return": -0.3838088519019597,
+          "maximum_drawdown": -0.479813334582015,
+          "final_equity": 10549.578756968072
+        }
+      ],
+      "exit_reasons": {
+        "stop_loss": 78,
+        "signal": 58,
+        "take_profit": 47
+      },
+      "planned_risk_breaches": 0,
+      "policy": {}
+    },
+    {
+      "version": "V2",
+      "run_key": "4c14ca796a7fba67d3a11ead3d31e64b61f62d0402fe3ff75ba4b407fcf06a7b",
+      "strategy_key": "1209a05a790a6ede3450e15a72a8ecd627494ebb15ed63f07d7e2ee0d74c2f49",
+      "stage": "development",
+      "since": "2020-03-01T00:00:00+00:00",
+      "until_exclusive": "2023-01-01T00:00:00+00:00",
+      "metrics": {
+        "total_return": 0.03506725555881429,
+        "cagr": 0.01222553243787683,
+        "sharpe_ratio": 0.28904846366753945,
+        "sortino_ratio": 0.4194274886145743,
+        "maximum_drawdown": -0.09420776087949634,
+        "win_rate": 0.4098360655737705,
+        "profit_factor": 1.0715416359381322,
+        "average_win": 70.03105980942031,
+        "average_loss": -45.38571231591086,
+        "number_of_trades": 183,
+        "exposure": 0.5044233553160689,
+        "fees": 373.514098868628,
+        "slippage": 186.75727717027658,
+        "net_funding": 0.0,
+        "liquidation_fees": 0.0,
+        "liquidation_count": 0,
+        "maximum_margin_ratio": 0.0
+      },
+      "final_equity": 10350.672555588144,
+      "annual": [
+        {
+          "year": 2020,
+          "total_return": 0.07549178374931742,
+          "maximum_drawdown": -0.02745221953531707,
+          "final_equity": 10754.917837493174
+        },
+        {
+          "year": 2021,
+          "total_return": 0.0035896633763208285,
+          "maximum_drawdown": -0.055597559160705634,
+          "final_equity": 10793.524372169764
+        },
+        {
+          "year": 2022,
+          "total_return": -0.04102939886099466,
+          "maximum_drawdown": -0.05809215938463441,
+          "final_equity": 10350.672555588144
+        }
+      ],
+      "exit_reasons": {
+        "stop_loss": 78,
+        "signal": 58,
+        "take_profit": 47
+      },
+      "planned_risk_breaches": 0,
+      "policy": {
+        "exit_mode": "fixed",
+        "max_exposure_fraction": 1.0,
+        "position_fraction": 1.0,
+        "risk_per_trade": 0.005
+      }
+    },
+    {
+      "version": "V1",
+      "run_key": "3ea1d8c4148167f49e54c1aba5016087a446b80b39b81c594426e2ccaabc004e",
+      "strategy_key": "a40902453abd936097f59a29928431c0bc124cd253364f4b5579eca4f7d7a87c",
+      "stage": "validation",
+      "since": "2023-01-01T00:00:00+00:00",
+      "until_exclusive": "2026-09-30T00:00:00+00:00",
+      "metrics": {
+        "total_return": 0.6116392561128101,
+        "cagr": 0.13589870259295167,
+        "sharpe_ratio": 0.5589332417833707,
+        "sortino_ratio": 0.8091107021046652,
+        "maximum_drawdown": -0.46034261814003297,
+        "win_rate": 0.40875912408759124,
+        "profit_factor": 1.1621467164567285,
+        "average_win": 782.8167784007584,
+        "average_loss": -465.6956423372145,
+        "number_of_trades": 137,
+        "exposure": 0.5278353027165307,
+        "fees": 3751.9779214217606,
+        "slippage": 1875.991896801269,
+        "net_funding": 0.0,
+        "liquidation_fees": 0.0,
+        "liquidation_count": 0,
+        "maximum_margin_ratio": 0.0
+      },
+      "final_equity": 16116.392561128101,
+      "annual": [
+        {
+          "year": 2023,
+          "total_return": 0.35259176992180863,
+          "maximum_drawdown": -0.2844512707286573,
+          "final_equity": 13525.917699218087
+        },
+        {
+          "year": 2024,
+          "total_return": 0.1550344208396932,
+          "maximum_drawdown": -0.402128656134741,
+          "final_equity": 15622.900516041718
+        },
+        {
+          "year": 2025,
+          "total_return": -0.1883843236715791,
+          "maximum_drawdown": -0.2922177409776242,
+          "final_equity": 12679.790968538835
+        },
+        {
+          "year": 2026,
+          "total_return": 0.2710298301538394,
+          "maximum_drawdown": -0.1410552080096279,
+          "final_equity": 16116.392561128101
+        }
+      ],
+      "exit_reasons": {
+        "take_profit": 29,
+        "signal": 73,
+        "stop_loss": 35
+      },
+      "planned_risk_breaches": 0,
+      "policy": {}
+    },
+    {
+      "version": "V2",
+      "run_key": "8422204353c81cfc059cfc9c6ca4c1cb064811a694fc96975a86d051b0c080a2",
+      "strategy_key": "1209a05a790a6ede3450e15a72a8ecd627494ebb15ed63f07d7e2ee0d74c2f49",
+      "stage": "validation",
+      "since": "2023-01-01T00:00:00+00:00",
+      "until_exclusive": "2026-09-30T00:00:00+00:00",
+      "metrics": {
+        "total_return": 0.06440556132025987,
+        "cagr": 0.016804562220575248,
+        "sharpe_ratio": 0.5554266494450797,
+        "sortino_ratio": 0.8045295428298072,
+        "maximum_drawdown": -0.05273801898409247,
+        "win_rate": 0.40875912408759124,
+        "profit_factor": 1.2451679358849215,
+        "average_win": 58.4116670005309,
+        "average_loss": -32.432070849717626,
+        "number_of_trades": 137,
+        "exposure": 0.5278353027165307,
+        "fees": 272.41601104203335,
+        "slippage": 136.2082686909748,
+        "net_funding": 0.0,
+        "liquidation_fees": 0.0,
+        "liquidation_count": 0,
+        "maximum_margin_ratio": 0.0
+      },
+      "final_equity": 10644.055613202598,
+      "annual": [
+        {
+          "year": 2023,
+          "total_return": 0.03447869407615056,
+          "maximum_drawdown": -0.030480039413064652,
+          "final_equity": 10344.786940761505
+        },
+        {
+          "year": 2024,
+          "total_return": 0.02116534674359971,
+          "maximum_drawdown": -0.047087027288004624,
+          "final_equity": 10563.737943351385
+        },
+        {
+          "year": 2025,
+          "total_return": -0.01666780584808203,
+          "maximum_drawdown": -0.03200852955122635,
+          "final_equity": 10387.663610281586
+        },
+        {
+          "year": 2026,
+          "total_return": 0.024682355199415307,
+          "maximum_drawdown": -0.0143796045647685,
+          "final_equity": 10644.055613202598
+        }
+      ],
+      "exit_reasons": {
+        "take_profit": 29,
+        "signal": 73,
+        "stop_loss": 35
+      },
+      "planned_risk_breaches": 0,
+      "policy": {
+        "exit_mode": "fixed",
+        "max_exposure_fraction": 1.0,
+        "position_fraction": 1.0,
+        "risk_per_trade": 0.005
+      }
+    }
+  ],
+  "promotion": "not_validated",
+  "holdout_evaluated": false
+}

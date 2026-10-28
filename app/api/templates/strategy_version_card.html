@@ -1,0 +1,22 @@
+{% set version = item.version %}{% set run = item.latest_run %}{% set task = item.optimization_request %}
+<article class="catalog-version" data-version-card data-recorded-date="{{ item.recorded_date }}" data-strategy="{{ version.strategy_family }}" data-timeframe="{{ version.timeframe }}" data-version="{{ version.version_number }}" data-category="{{ item.category }}">
+  <div class="catalog-version-head">
+    <div><strong>{{ item.strategy_label }} V{{ version.version_number }}</strong> <span class="tag category-{{ item.category }}">{{ item.category_label }}</span>
+      <p class="muted">{% if item.parent_version %}基於 V{{ item.parent_version }}{% else %}基準設定{% endif %} · {{ item.experiment_count }} 筆回測 · 建立 {{ item.created_at }}{% if item.policy.get("trailing_reentry_mode") == "pullback_reclaim" %} · 回檔站回24均線再入{% endif %}</p>
+    </div>
+    <div class="catalog-links"><a class="small-link" href="{{ item.edit_url }}">使用此版本 →</a><a class="small-link" href="/strategies/{{ version.strategy_key }}/backtests">查看 {{ item.experiment_count }} 筆回測 →</a></div>
+  </div>
+  <p class="catalog-parameters">{% if version.strategy_family == "intraday" %}4H方向＋1H {{ item.policy.get("intraday_entry") }} · ATR14×2初始止損{% if item.policy.get("intraday_strong_close") %} · 上漲強收盤確認{% endif %}{% if item.policy.get("intraday_min_atr_fraction") %} · 最低ATR {{ "%.1f"|format(item.policy.intraday_min_atr_fraction*100) }}%{% endif %} · {% endif %}{% if item.policy.get("higher_timeframe_filter") %}4H SMA20/60方向＋1H訊號 · {% endif %}{% if version.fast_period is not none %}SMA {{ version.fast_period }}/{{ version.slow_period }} · {% endif %}{% if version.strategy_family != "intraday" %}SL {{ "%.1f"|format((version.stop_loss_pct or 0)*100) }}%{% else %}固定SL欄位停用{% endif %} · {{ "訊號出場（固定止盈停用）" if item.policy.get("exit_mode") == "signal" else "固定止盈 " ~ ("%.1f"|format((version.take_profit_pct or 0)*100)) ~ "%" }}{% if item.policy.get("trailing_activation") %} · 追蹤 {{ "%.1f"|format(item.policy.trailing_activation*100) }}%／{{ "%.1f"|format(item.policy.trailing_distance*100) }}%{% endif %}{% if item.policy.get("max_entries_per_day") %} · 每日最多{{ item.policy.max_entries_per_day }}次{% endif %}{% if item.policy.get("max_holding_bars") %} · 持倉最多{{ item.policy.max_holding_bars }}根{% endif %} · {{ "%.1f"|format(version.leverage) }}x{% if item.policy.get("risk_regime") == "loss_streak" %} · 連虧兩筆後風險減半{% endif %}{% if item.policy.get("risk_regime") == "slow_slope" %} · 180 均線走平／下降時風險減半{% endif %}</p>
+  <p class="muted">最近實驗：{{ item.parameters.since }} → {{ item.parameters.until }} · 收益 <span class="{{ 'positive' if run.total_return >= 0 else 'negative' }}">{{ "%+.2f"|format(run.total_return*100) }}%</span> · DD {{ "%.2f"|format(run.maximum_drawdown*100) }}%<span class="catalog-metric-note">（各版本日期可能不同，非整體排名）</span></p>
+  <form action="/strategies/{{ version.strategy_key }}/classification" method="post" class="catalog-classification">
+    <label>版本分類<select name="category" aria-label="V{{ version.version_number }} 版本分類">{% for value, label in category_labels.items() %}<option value="{{ value }}" {{ 'selected' if value == item.category }}>{{ label }}</option>{% endfor %}</select></label>
+    <button class="small-action" type="submit">儲存分類</button>
+    {% if task and task.status == 'pending' %}<span class="tag">等待 AI 優化</span>{% endif %}
+  </form>
+  <details class="catalog-settings" {{ 'open' if task and task.status == 'pending' }}><summary>參數、修改原因與 AI 優化</summary>
+    <p>{{ version.hypothesis or '尚無研究備註' }}</p>
+    {% for change in item.changes %}<p><strong>{{ change.label }}</strong>：{{ change.before }} → {{ change.after }}</p>{% endfor %}
+    {% if task and task.status == 'pending' %}<p>等待 AI 優化 · 已記錄 {{ task.evidence_run_keys|length }} 筆回測</p><form action="/strategy-optimizations/{{ task.request_id }}/cancel" method="post"><button class="delete-button" type="submit">取消等待</button></form>
+    {% else %}{% if task %}<p>{{ {'completed':'已完成候選實驗','skipped':'分析完成，暫不變更','failed':'優化失敗','cancelled':'已取消'}.get(task.status, task.status) }} · <a href="/strategy-optimizations">查看結論與比較</a></p>{% endif %}<form action="/strategy-optimizations/enqueue" method="post"><input type="hidden" name="strategy_key" value="{{ version.strategy_key }}"><label>優化目標<input name="objective" maxlength="300" placeholder="例如：降低回撤、改善出場"></label><button class="small-action" type="submit">標記等待 AI 優化</button></form>{% endif %}
+  </details>
+</article>
