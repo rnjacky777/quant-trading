@@ -17,6 +17,8 @@ SPOT_URL = "https://api.binance.com"
 EXCHANGE = "binance-usdm"
 SYMBOL = "BTC/USDT"
 HOUR_MS = 3600000
+# Binance can still revise a kline's volume in the first second after close (seen 2026-10-29 shakedown).
+KLINE_SETTLE_MS = 3000
 
 
 class FeedError(RuntimeError):
@@ -77,7 +79,7 @@ class BinanceUsdmPublicFeed:
         received = self.clock()
         server = self.server_time()
         return [(Candle(EXCHANGE, SYMBOL, "1h", int(r[0]), float(r[1]), float(r[2]), float(r[3]),
-                        float(r[4]), float(r[5])), received) for r in rows if int(r[6]) < server]
+                        float(r[4]), float(r[5])), received) for r in rows if int(r[6]) + KLINE_SETTLE_MS < server]
 
     def quote(self) -> Quote:
         # /ticker/price is a cached snapshot (seconds old); recent trades give the live last price.
