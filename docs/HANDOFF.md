@@ -77,12 +77,16 @@
    .\.venv\Scripts\python -m pytest -q
    ```
    預期 310 項全部通過。
-4. **重現檢查**：`.\.venv\Scripts\python -m scripts.paper_perpetual parity`，8 個案例都要顯示 `equal`。這一步會在 `data/paper-perpetual/` 新增一份 parity 檔。
-5. **電腦設定**：
+4. **換行與 hash**：
+   - 凍結清單、parity 檔和實驗結果裡的原始碼 SHA256，都是在原電腦上算的。原電腦的 Git 設定 `core.autocrlf=true`，所以工作目錄的檔案大多是 CRLF，少數由腳本產生的檔案是 LF。
+   - 新電腦用預設的 Windows Git（autocrlf=true）checkout 時，大多數檔案的 hash 會吻合。若不吻合，請先把 CRLF 轉成 LF 再比對內容；內容的唯一依據是 git commit。
+   - 不要加強制 LF 的 `.gitattributes`。
+5. **重現檢查**：`.\.venv\Scripts\python -m scripts.paper_perpetual parity`，8 個案例都要顯示 `equal`。這一步會在 `data/paper-perpetual/` 新增一份 parity 檔。
+6. **電腦設定**：
    - 關閉睡眠與休眠，避免自動更新在預演期間重開機。
    - 如果是虛擬機，先裝好 Guest Additions，讓時鐘同步；預演要求時鐘誤差在 1 秒內。
    - 確認 `LIVE_TRADING` 沒有設為 true。
-6. **開始正式預演**：`.\.venv\Scripts\python -m scripts.paper_perpetual rehearse --hours 72`。過程中用 `status --run-dir data/paper-perpetual/<run_id>` 檢查狀態。要在主機 hash 不變的前提下連續跑完；不要在預演期間修改 `PAPER_SOURCES` 列出的檔案，否則重啟時會被拒絕接續。
+7. **開始正式預演**：`.\.venv\Scripts\python -m scripts.paper_perpetual rehearse --hours 72`。過程中用 `status --run-dir data/paper-perpetual/<run_id>` 檢查狀態。要在主機 hash 不變的前提下連續跑完；不要在預演期間修改 `PAPER_SOURCES` 列出的檔案，否則重啟時會被拒絕接續。
 
 ## 4. 為什麼過去改了這麼多版仍然沒進展
 
