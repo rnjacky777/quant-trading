@@ -1,0 +1,89 @@
+# BTC 永續前瞻 paper：A 軌工程實作
+
+2026-10-29。依 `2026-10-29-forward-paper-plan.md` 實作 paper 工程部分。**狀態：程式已完成並通過 replay 一致性檢查與單元測試；尚未做 72 小時預演，正式觀察也還沒啟動（T0 尚未登記）。** 本文件不修改事前方案，只記錄實作內容、與研究模型的差異，以及剩下的啟動門檻。
+
+## 影響範圍與資料流
+
+公開行情 → 完成的 1h K 線 → 凍結策略訊號 → 共享資金准入（四個成本帳本各自獨立）→ 用報價模擬成交 → lot／funding 帳本 → 每小時對帳、終止條件 → 事件帳本。
+
+|模組|檔案|職責|
+|---|---|---|
+|data|`app/data/live_perpetual.py`|Binance USD-M 公開端點：K 線、bookTicker、最近成交、premiumIndex、funding。不需要 key，也沒有任何下單或帳戶方法。|
+|execution|`app/execution/perpetual_paper.py`|`PaperPortfolioBook`：決策語義與 `PortfolioResearchEngine`（directional_loss_guard + swing_failure_exit）相同，成交價由呼叫端提供。|
+|execution|`app/execution/paper_replay.py`|用研究成交模型（下一根開盤、K 線內極值）重播，只用來證明決策一致，不算證據。|
+|execution|`app/execution/paper_ledger.py`|只能追加的 JSONL 事件帳本，用 SHA256 串鏈；用 event_id 防止重複寫入，偵測到竄改或殘缺紀錄就拒絕啟動。|
+|execution|`app/execution/paper_runner.py`|每小時循環、四個成本帳本、資料品質把關、重啟時重播事件。|
+|monitoring|`app/monitoring/paper_checks.py`|資料品質門檻、對帳、−3%／10% 研究終止條件。|
+|CLI|`scripts/paper_perpetual.py`|`parity`、`rehearse`、`status`。目前**沒有**正式啟動指令。|
+
+策略、風控與研究引擎的原始碼都沒有修改。
+
+## 決策一致性（不是績效證據）
+
+`python -m scripts.paper_perpetual parity`：在 2024／2025 × 5/5、10/5、10/10、20/10bps，共 8 個案例上，paper book 用研究成交模型重播的完整序列化快照（交易、admission、淨值曲線、指標）與 `PortfolioResearchEngine` **逐位元組相同**。結果存在 `data/paper-perpetual/parity-20261029T063619Z.json`。
+
+- 用的是調參資料。2022／2023 的驗證資料沒有打開。
+- 第一版在 2024 5/5 出現 2e-16 的浮點差：funding 是全部先套用，研究引擎則是逐 lot 交錯處理。已改成跟研究引擎一樣逐 lot 套用。
+
+## 前瞻成交模型（與研究模型的差異）
+
+|項目|研究回測|paper|
+|---|---|---|
+|進出場價|下一根 1h 開盤|決策後第一個收到的報價：買用 ask、賣用 bid，再加不利滑價 bps|
+|止損觸發|K 線最高／最低價|每 5 秒輪詢的最近成交價（`/fapi/v1/trades`）|
+|止損成交|min(開盤, 止損價)|觸發那次輪詢的 bid／ask 加不利滑價；跳空不保證止損價|
+|強平|mark 極值|當時 mark（研究假設 MMR 2%，未驗證）|
+|時間上限、每日筆數|以 K 線小時計|同樣以決策小時計；實際成交時間另存在 fills|
+|funding|歷史紀錄|官方結算紀錄；等 120 秒仍沒有就用結算前公布的 `lastFundingRate` 並標成 provisional，不會當成零|
+
+報價延遲有兩點要記錄：`/ticker/price` 是快取資料，時間戳最多落後約 6 秒，所以最新成交價改用 `/fapi/v1/trades`，報價新鮮度用 bookTicker 的時間判斷。實測新鮮度在 0.1 到 1.6 秒，本機時鐘比交易所慢約 0.26 秒，都在門檻內。
+
+## 資料品質與故障處理
+
+- 下列任一項不符合就**只擋新單**，出場照常處理，並記錄事故：
+  - K 線在整點後 60 秒內收到。
+  - 報價在決策後 5 秒內收到。
+  - 報價和成交時間與收到時間相差不超過 5 秒。
+  - 時鐘誤差不超過 1 秒。
+- 對帳不符會**持續擋新單**，直到另開新的 run。
+- K 線等到 120 秒仍沒有：這個小時沒有訊號，只結算 funding，不補做決策。K 線之後到了會記錄下來，但不會回頭補交易。
+- 程式沒在跑的小時記為 `missed_hour` 事故，不補做。重啟時重播帳本，同一小時不會決策兩次。
+- 歷史 K 線若被修訂，記為 `bar_revised`，決策仍用當時收到的版本。
+- paper 原始碼的 hash 一改，就拒絕接續原 run（研究終止條件要求另登記新 run）。
+- `LIVE_TRADING=true` 時，CLI 拒絕執行。
+
+## 已知限制（尚未驗證或尚未實作）
+
+1. 等 K 線（最多 120 秒）和等 funding（最多 120 秒）的期間沒有檢查止損。整點決策本身會用當時報價檢查止損，但這段時間仍有空窗。
+2. 報價是 REST 每 5 秒輪詢，不是 websocket。輪詢之間的價格穿越可能漏掉，或在下一次輪詢才觸發。
+3. 沒有模擬部分成交或深度，假設最優報價可以全量成交。單筆名目約數百到數千 USDT，影響應該很小，但沒有驗證。
+4. 在整點之後、但同一小時內才公布的 funding，會在該小時收盤時才結算，而不是像研究引擎那樣在 K 線內處理。
+5. 每月報告、Grafana 指標、備份與還原演練、正式啟動指令和 runtime／依賴鎖定 hash 還沒做。
+6. 研究 lot 可以多空同時持有。這不代表交易所 hedge mode 已經驗證。
+
+## 程式測試
+
+`tests/test_perpetual_paper.py` 新增 11 項，全套 pytest 301 項通過。涵蓋：
+
+- 合成資料 replay 一致（含止損、訊號、時間出場與 funding）。
+- ask／bid 成交。
+- 帳本防重複、偵測竄改與殘缺紀錄。
+- runner 從頭到尾跑完後對帳，重啟後狀態完全相同。
+- 當機後重啟不重複決策、不補做錯過的小時。
+- 報價過期與 K 線遲到時擋新單。
+- 缺 funding 時標成 provisional。
+- 原始碼變更後拒絕接續。
+- K 線內止損用 bid 成交，研究終止條件會平掉所有帳本。
+- 凍結帳本與 manifest 一致，資料源沒有下單方法。
+
+以上是程式正確性測試，不代表策略會賺錢。
+
+## 剩下的啟動門檻（依事前方案）
+
+1. 至少連續 72 小時的純工程預演：`python -m scripts.paper_perpetual rehearse --hours 72`。預演只看操作有效性，不看績效。
+2. 備份與重啟演練：預演中途停掉程式再用 `--resume` 接續，確認只出現 `missed_hour` 事故，沒有重複決策。
+3. 核對當前適用的公開費率；若跟 5/5 主假設不同，先寫修訂紀錄。
+4. 補上正式啟動工具：產生完整程式、依賴、資料來源與執行模型 hash 加 git 狀態，T0 事前寫入下一個整點，不早於 2026-10-30 00:00 UTC。
+5. 補上每月報告與監控指標。
+
+本次交付：新增策略回測 0（parity 的 8 個案例是決策一致性檢查，不是新的策略回測）、程式測試 11、研究候選 0。

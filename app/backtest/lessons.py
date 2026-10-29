@@ -50,6 +50,8 @@ LESSONS = (
      "低參與量的波段確認可能缺乏延續", "波段完成確認bar成交量至少為前20根4h平均量", "保留取捨候選，不取代原研究基準", "四組收益小升但2024兩組回撤退步；2025仍虧，正常成本僅改善約2 USDT；少量調參分組不能證明優勢或滿足頻率"),
     ("intraday_price_protection", "perpetual-swing-failure-exit.json", "portfolio_swing_failure_exit", "perpetual-intraday-protection.json", "portfolio_intraday_protection",
      "目前結構掃單短線有達1R後轉虧案例，可與舊波段失敗實驗分開測試", "只對短線完成收盤達1R後移stop至進場價，下一根生效", "未採用為研究基準", "三組收益微升但2025雙成本收益與回撤退步；價格保護仍扣費且會將原小贏家退出成虧損，不掃1R附近參數"),
+    ("swing_long_signal_hold", "perpetual-swing-failure-exit.json", "portfolio_swing_failure_exit", "perpetual-swing-long-signal-hold.json", "portfolio_swing_long_signal_hold",
+     "訊號出場的波段多單同筆固定72h兩年都較好，訊號出場可能過早", "波段多單進場未滿72h忽略exit_long；止損、突破失效與168h上限不變", "未採用，保留原基準", "2025改善約0.57點但2024四組皆微退、2025回撤增加；2025約41/57 USDT改善來自單筆多單轉盈解除共享連虧減倉使空單加倍，路徑脆弱；不掃48/96h"),
 )
 
 
@@ -84,6 +86,35 @@ def research_lessons(root: Path) -> dict:
         lessons.append(dict(id=identity,parent=pvariant,child=cvariant,hypothesis=hypothesis,
             one_change=change,decision=decision,limitation=limitation,comparisons=comparisons,
             used_for_tuning=True,independent_validation=False))
+    budget_path = root / "perpetual-risk-budget-055.json"
+    if budget_path.exists():
+        content = budget_path.read_bytes()
+        budget = json.loads(content)
+        if budget.get('status') != 'completed' or len(budget['rows']) != 32:
+            raise ValueError("risk-budget experiment incomplete; inspect saved failure before further tuning")
+        expected = {(variant, year, fee, slip) for variant in (budget['parent'], budget['candidate'])
+                    for year in range(2022, 2026) for fee, slip in ((5, 5), (10, 5), (10, 10), (20, 10))}
+        actual = {(r['variant'], r['year'], r['fee_bps'], r['slippage_bps']) for r in budget['rows']}
+        if actual != expected:
+            raise ValueError('risk-budget missing or duplicated period/cost evidence')
+        hashes[budget_path.name] = sha256(content).hexdigest()
+        comparisons = []
+        for child in budget['rows']:
+            if child['variant'] != budget['candidate']:
+                continue
+            key = (child['year'], child['fee_bps'], child['slippage_bps'])
+            parent = next(r for r in budget['rows'] if r['variant'] == budget['parent']
+                          and (r['year'], r['fee_bps'], r['slippage_bps']) == key)
+            if parent['input_fingerprints'] != child['input_fingerprints']:
+                raise ValueError('risk-budget parent/child inputs differ')
+            comparisons.append(dict(year=key[0], fee_bps=key[1], slippage_bps=key[2],
+                parent_metrics=parent['result']['metrics'], child_metrics=child['result']['metrics']))
+        lessons.append(dict(id='uniform_risk_budget_055', parent=budget['parent'], child=budget['candidate'],
+            hypothesis='Uniform risk increase may meet Objective A while retaining risk headroom',
+            one_change='Both sleeve risk_per_trade 0.0025 to 0.0055; all admission limits unchanged',
+            decision=budget['decision'], comparisons=comparisons, objectives=budget['objectives'],
+            limitation='Mean 4.299% misses 5%; admission competition removes winners and changes loss-brake paths. Follow-up admission-risk diagnosis reproduced 32 cases: giveback is 72–82% of primary-cost blocked risk, but 21 missing parent trades include 10 losers and only +70.64 USDT original net PnL. Giveback is real equity drawdown risk; insufficient evidence to remove it. See docs/research/2026-10-29-admission-risk-results.md. Do not sweep nearby budgets. All four years are tuning evidence.',
+            used_for_tuning=True, independent_validation=False))
     return dict(scope="BTC perpetual 1h/4h research; not automatically applicable to spot or other assets",
         evidence_status="saved snapshots checked, not an engine replay; original replay audits remain required",
         warning="Overlapping periods/cost cases are not independent. No proven profitable candidate; no automatic optimization or orders.",

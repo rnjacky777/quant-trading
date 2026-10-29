@@ -26,9 +26,10 @@ def run_experiment(*, entry_candidate: DirectionalStrategy | None = None, risk_d
         intraday_price_protection: bool = False,
         swing_short_risk_cap: bool = False,
         swing_hourly_failure: bool = False,
+        swing_long_signal_hold: bool = False,
         parent_path: Path = Path("data/perpetual-portfolio-research.json"),
         parent_variant: str = "portfolio_combined") -> None:
-    if sum((entry_candidate is not None, risk_decay, swing_exit_lookback is not None, swing_entry_candidate is not None, intraday_holding_hours is not None, swing_price_protection, intraday_exit_candidate is not None, directional_loss_guard,swing_failure_exit,slope_risk_cap,intraday_price_protection,swing_short_risk_cap,swing_hourly_failure)) != 1:
+    if sum((entry_candidate is not None, risk_decay, swing_exit_lookback is not None, swing_entry_candidate is not None, intraday_holding_hours is not None, swing_price_protection, intraday_exit_candidate is not None, directional_loss_guard,swing_failure_exit,slope_risk_cap,intraday_price_protection,swing_short_risk_cap,swing_hourly_failure,swing_long_signal_hold)) != 1:
         raise ValueError("change exactly one category: entry, exit or risk")
     root=Path("data/btc-perpetual-1h")
     tape=[Candle("binance-usdm","BTC/USDT","1h",int(r["open_time"]),
@@ -99,7 +100,8 @@ def run_experiment(*, entry_candidate: DirectionalStrategy | None = None, risk_d
             result=PortfolioResearchEngine(sleeves,limits,swing_price_protection=swing_price_protection,
                 directional_loss_guard=candidate_guard,swing_failure_exit=inherited_failure_exit or swing_failure_exit,
                 slope_risk_cap=slope_risk_cap,intraday_price_protection=intraday_price_protection,
-                swing_short_risk_cap=swing_short_risk_cap,swing_hourly_failure=swing_hourly_failure).run(period,evaluation_start_ms=start,marks=period_marks,funding=rates)
+                swing_short_risk_cap=swing_short_risk_cap,swing_hourly_failure=swing_hourly_failure,
+                swing_long_signal_hold=swing_long_signal_hold).run(period,evaluation_start_ms=start,marks=period_marks,funding=rates)
             summary=dict(maximum_concurrent_positions=result.maximum_concurrent_positions,
                 maximum_gross_exposure=max(p.gross_exposure/p.equity for p in result.portfolio_curve),
                 admission_limit_drift_bars=sum(p.admission_limit_exceeded for p in result.portfolio_curve))
@@ -115,6 +117,8 @@ def run_experiment(*, entry_candidate: DirectionalStrategy | None = None, risk_d
                 row['swing_failure_exit']=True
             if swing_hourly_failure:
                 row['swing_hourly_failure']=True
+            if swing_long_signal_hold:
+                row['swing_long_signal_hold']=dict(hours=72,direction='long',sleeve='swing')
             if swing_short_risk_cap:
                 row['swing_short_risk_cap']=True
             if slope_risk_cap:
@@ -132,9 +136,9 @@ def run_experiment(*, entry_candidate: DirectionalStrategy | None = None, risk_d
                 portfolio_limits=asdict(limits),status="failed",error=str(exc))
         rows.append(row)
         output.write_text(json.dumps(dict(
-            schema="perpetual_portfolio_exit_ablation_v1" if swing_hourly_failure or intraday_price_protection or swing_failure_exit or intraday_exit_candidate is not None or swing_price_protection or swing_exit_lookback is not None or intraday_holding_hours is not None else "perpetual_portfolio_entry_ablation_v1" if entry_candidate or swing_entry_candidate else "perpetual_portfolio_risk_ablation_v1",historical_margin_brackets_verified=False,
-            parent=parent_variant,category="exit" if swing_hourly_failure or intraday_price_protection or swing_failure_exit or intraday_exit_candidate is not None or swing_price_protection or swing_exit_lookback is not None or intraday_holding_hours is not None else "signal" if entry_candidate or swing_entry_candidate else "risk",
-            rule="Frozen swing breakout boundary checked at every completed 1h close; exit next open." if swing_hourly_failure else "Swing short risk multiplier capped at min(existing loss brake, 0.5)." if swing_short_risk_cap else "Intraday stop moves to entry after completed close reaches 1R; effective next hour." if intraday_price_protection else "Risk budget capped at min(existing loss brake, completed 4h SMA60 24h directional slope cap)." if slope_risk_cap else "Swing frozen breakout boundary invalidation on completed 4h close; next-hour exit." if swing_failure_exit else "Risk brake=min(shared sleeve loss brake,same-direction sleeve loss brake)." if directional_loss_guard else intraday_exit_candidate.name if intraday_exit_candidate is not None else "Swing stop moves to entry after a completed close reaches 1R; effective next hour." if swing_price_protection else f"Intraday maximum holding {intraday_holding_hours}h; signal exits and initial stops unchanged." if intraday_holding_hours is not None else f"Swing exit channel {swing_exit_lookback} completed 4h bars; other rules unchanged." if swing_exit_lookback is not None else swing_entry_candidate.name if swing_entry_candidate else entry_candidate.name if entry_candidate else "Multiply entry risk by1/(1+existing BTC same-direction lots).",
+            schema="perpetual_portfolio_exit_ablation_v1" if swing_long_signal_hold or swing_hourly_failure or intraday_price_protection or swing_failure_exit or intraday_exit_candidate is not None or swing_price_protection or swing_exit_lookback is not None or intraday_holding_hours is not None else "perpetual_portfolio_entry_ablation_v1" if entry_candidate or swing_entry_candidate else "perpetual_portfolio_risk_ablation_v1",historical_margin_brackets_verified=False,
+            parent=parent_variant,category="exit" if swing_long_signal_hold or swing_hourly_failure or intraday_price_protection or swing_failure_exit or intraday_exit_candidate is not None or swing_price_protection or swing_exit_lookback is not None or intraday_holding_hours is not None else "signal" if entry_candidate or swing_entry_candidate else "risk",
+            rule="Swing longs ignore strategy exit signals for the first 72h; stops, breakout-failure and time exits unchanged." if swing_long_signal_hold else "Frozen swing breakout boundary checked at every completed 1h close; exit next open." if swing_hourly_failure else "Swing short risk multiplier capped at min(existing loss brake, 0.5)." if swing_short_risk_cap else "Intraday stop moves to entry after completed close reaches 1R; effective next hour." if intraday_price_protection else "Risk budget capped at min(existing loss brake, completed 4h SMA60 24h directional slope cap)." if slope_risk_cap else "Swing frozen breakout boundary invalidation on completed 4h close; next-hour exit." if swing_failure_exit else "Risk brake=min(shared sleeve loss brake,same-direction sleeve loss brake)." if directional_loss_guard else intraday_exit_candidate.name if intraday_exit_candidate is not None else "Swing stop moves to entry after a completed close reaches 1R; effective next hour." if swing_price_protection else f"Intraday maximum holding {intraday_holding_hours}h; signal exits and initial stops unchanged." if intraday_holding_hours is not None else f"Swing exit channel {swing_exit_lookback} completed 4h bars; other rules unchanged." if swing_exit_lookback is not None else swing_entry_candidate.name if swing_entry_candidate else entry_candidate.name if entry_candidate else "Multiply entry risk by1/(1+existing BTC same-direction lots).",
             rows=rows),allow_nan=False),encoding="utf-8")
 
 

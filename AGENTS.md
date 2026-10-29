@@ -7,6 +7,29 @@ evidence of a working strategy.
 
 ## 1. Scope and current state (handoff)
 
+**Start with `docs/HANDOFF.md`**: current results, user-selected Objective A,
+the completed risk-budget experiment, and why earlier iterations stalled.
+
+**Current instruction (2026-10-29): freeze risk parameters and obtain forward
+paper evidence.** Plan: `docs/research/2026-10-29-forward-paper-plan.md`;
+research configuration/source hashes: matching `forward-paper-manifest.json`.
+Observe retained baseline at 0.25% risk; do not resume optimization or promote
+the 0.55% candidate. Paper engineering exists (`scripts/paper_perpetual.py`,
+`docs/research/2026-10-29-forward-paper-implementation.md`); the 72h rehearsal,
+restart drill and formal activation tool are pending; do not claim the
+observation clock has started. Follow the registered activation and review
+gates; no automatic testnet/live transition.
+
+The freeze covers only the paper-observed version. Two tracks run in parallel
+(details in `docs/HANDOFF.md` §5):
+- **Track A (engineering):** paper runner, event ledger, reconciliation,
+  monitoring; start the registered observation of the frozen baseline.
+- **Track B (research):** only new signal hypotheses with an independent
+  economic mechanism, as separate candidates; never edit the observed version.
+  No parameter/threshold/risk sweeps of the existing baseline. 2022–2025 are
+  screening evidence only; a candidate that passes needs its own preregistered
+  forward paper observation before any claim.
+
 - Platform scope: BTC/USDT and ETH/USDT, 4h and 1d bars, long/cash dashboard.
 - **Active research: BTC USDT perpetual only**, 1h entries with completed 4h
   context, long and short as first-class directions. Isolated artifacts:
@@ -14,12 +37,19 @@ evidence of a working strategy.
   `app/backtest/portfolio_research.py`. Never mix short trades into long-only
   dashboard snapshots or claim dashboard/live support for this research.
 - Research baseline: `portfolio_swing_failure_exit` (see `lessons`).
-- Objective: ≥10% net return in EACH of calendar 2024 and 2025 (capital reset to
-  10,000 USDT each year), max drawdown ≤10%. 2024/2025 are tuning evidence only.
+- Objective A (user selected 2026-10-29): arithmetic mean annual net return
+  ≥5% over 2022–2025, capital reset to 10,000 USDT each year; maximum drawdown
+  ≤10%, worst annual return ≥−3%; doubled-cost mean return >0. Primary costs
+  5/5 bps, doubled costs 10/10 bps; retain 10/5 and 20/10 stress cases.
+  Risk bounds apply to all cost cases. All four years are now tuning evidence
+  for changes informed by their results. See 2026-10-29-risk-budget-design.md.
   The objective is not a guarantee or licence to search until history fits.
 - Unseen validation: 2022/2023, preregistered in
   `docs/research/2026-10-28-validation-preregistration.md`; data in
   `data/btc-perpetual-validation-1h`. Do not open it outside that procedure.
+  The baseline was evaluated once (failed: 2022 −0.31%, 2023 +4.58%); see
+  `docs/research/2026-10-29-validation-2022-2023-results.md`. Changes informed
+  by that result cannot claim 2022/2023 validation.
 - New-sleeve screens already rejected on 2024/2025 (not sent to validation):
   negative-funding long and 28-day daily time-series momentum. See
   `docs/research/2026-10-28-{funding-sleeve,daily-momentum}-results.md`.

@@ -18,6 +18,8 @@ from app.risk.regime import directional_loss_guard_multiplier, loss_streak_multi
 from app.strategies.base import Action
 from app.strategies.swing_failure import breakout_boundary, breakout_failed
 
+SWING_LONG_SIGNAL_HOLD_HOURS = 72
+
 
 @dataclass(frozen=True)
 class ResearchSleeve:
@@ -66,7 +68,10 @@ class PortfolioResearchEngine:
                  *, swing_price_protection: bool = False, directional_loss_guard: bool = False,
                  swing_failure_exit: bool = False, slope_risk_cap: bool = False,
                  intraday_price_protection: bool = False, swing_short_risk_cap: bool = False,
-                 swing_hourly_failure: bool = False) -> None:
+                 swing_hourly_failure: bool = False, swing_long_signal_hold: bool = False) -> None:
+        if type(swing_long_signal_hold) is not bool:
+            raise ValueError("swing_long_signal_hold must be boolean")
+        self.swing_long_signal_hold = swing_long_signal_hold
         if type(swing_hourly_failure) is not bool or (swing_hourly_failure and not swing_failure_exit):
             raise ValueError("swing_hourly_failure requires boolean and enabled swing_failure_exit")
         self.swing_hourly_failure = swing_hourly_failure
@@ -112,7 +117,8 @@ class PortfolioResearchEngine:
         return cash+sum(l.position.direction*l.position.quantity*(mark-l.position.entry_price) for l in book.values())
 
     def run(self,candles: list[Candle],*,evaluation_start_ms: int,marks: list[MarkPriceCandle],
-            funding: list[FundingRate], signal_observer: Callable[[dict],None] | None = None) -> PortfolioResearchResult:
+            funding: list[FundingRate], signal_observer: Callable[[dict],None] | None = None,
+            admission_observer: Callable[[dict],None] | None = None) -> PortfolioResearchResult:
         start=next(iter(self.engines.values())).validate_inputs(candles,
             evaluation_start_ms=evaluation_start_ms,marks=marks,funding=funding)
         initial=self.sleeves[0].config.initial_cash
@@ -168,6 +174,10 @@ class PortfolioResearchEngine:
                     signal=signals[lot.sleeve]
                     timed=candle.timestamp_ms-p.entry_timestamp_ms>=c.holding_hours*3600000
                     wants_exit=signal.exit_long if p.direction==1 else signal.exit_short
+                    # Swing longs ignore strategy exits for the first 72h; stops and failure exits still apply.
+                    if (self.swing_long_signal_hold and lot.sleeve=="swing" and p.direction==1
+                            and candle.timestamp_ms-p.entry_timestamp_ms<SWING_LONG_SIGNAL_HOLD_HOURS*3600000):
+                        wants_exit=False
                     failed=lot.breakout_level is not None and breakout_failed(history,p.direction,lot.breakout_level,hourly=self.swing_hourly_failure)
                     if timed or wants_exit or failed:
                         close(lot_id,candle,candle.open,"time_limit" if timed else "signal" if wants_exit else "breakout_failure")
@@ -204,6 +214,14 @@ class PortfolioResearchEngine:
                 fraction,reason=admission_fraction(equity=equity,cash=cash,usage=usage,
                     notional=proposal.quantity*max(proposal.entry_price,mark.open),margin_and_fee=proposal.margin+proposal.entry_fee,
                     planned_risk=proposal.planned_risk,limits=self.limits)
+                if admission_observer is not None:
+                    admission_observer(deepcopy(dict(timestamp_ms=candle.timestamp_ms,
+                        sleeve=sleeve.name,direction=signal.direction,mark=mark.open,
+                        equity=equity,cash=cash,usage=asdict(usage),proposal=asdict(proposal),
+                        fraction=fraction,reason=reason,limits=asdict(self.limits),
+                        lots=[dict(position_id=lot.position_id,sleeve=lot.sleeve,
+                                   position=asdict(lot.position),config=asdict(self.configs[lot.sleeve]))
+                              for lot in book.values()])))
                 if fraction<=1e-10:
                     admissions.append(dict(timestamp_ms=candle.timestamp_ms,sleeve=sleeve.name,status="rejected",reason=reason))
                     continue

@@ -33,6 +33,14 @@ Next gates:
 
 Status: next implementation target.
 
+BTC perpetual long/short forward observation has a preregistered plan in
+[2026-10-29-forward-paper-plan.md](research/2026-10-29-forward-paper-plan.md).
+It freezes the retained research baseline at 0.25% risk, specifies a 365-day
+primary evaluation and a 90-day operational review, and remains **not started**.
+The existing long/cash dashboard does not provide this paper runner. The
+research-source manifest is not a complete deployable runtime. Implement and
+validate the isolated runner and durable ledger before registering activation.
+
 - Scheduled closed-candle update
 - Generate one idempotent signal per symbol/timeframe/candle
 - Risk manager determines size
