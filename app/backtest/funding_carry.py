@@ -26,11 +26,15 @@ class CarryConfig:
     assumed_mmr: float = .02
     liquidation_fee_bps: float = 50
     emergency_margin_ratio: float = .25
+    # 0 disables; otherwise rebalance when spot value exceeds target by this fraction (experiment 3).
+    drift_band: float = 0
 
     def __post_init__(self) -> None:
         values = (self.perp_fee_bps, self.perp_slippage_bps, self.spot_fee_bps, self.spot_slippage_bps)
         if not all(isfinite(v) and 0 <= v < 1000 for v in values):
             raise ValueError("invalid carry costs")
+        if not (isfinite(self.drift_band) and 0 <= self.drift_band < 1):
+            raise ValueError("invalid drift band")
         if not (0 < self.target_fraction < 1 and self.initial_cash > 0 and 0 < self.emergency_margin_ratio < 1):
             raise ValueError("invalid carry sizing")
 
@@ -182,6 +186,9 @@ def run_funding_carry(perp: list[Candle], marks: list[MarkPriceCandle], funding:
             basis.append(candle.close / spot_close - 1)
             if perp_equity / (book.short_qty * mark.close) < config.emergency_margin_ratio and pending is None:
                 pending = "emergency"
+            if (config.drift_band and pending is None and i < len(perp) - 1
+                    and book.spot_qty * spot_close > config.target_fraction * equity * (1 + config.drift_band)):
+                pending = "drift"
     final = curve[-1].equity
     if abs(book.spot_cash + book.perp_wallet - final) > 1e-6 or book.spot_qty > 1e-12 or book.short_qty:
         raise ValueError("carry account does not reconcile after exit")

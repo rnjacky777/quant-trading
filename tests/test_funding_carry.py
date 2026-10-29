@@ -72,3 +72,12 @@ def test_only_registered_spot_outage_is_tolerated_and_rebalance_waits():
     result = run_funding_carry(perp, marks, [], spot, free(), known_spot_outages=frozenset({month_start}))
     assert [r["timestamp_ms"] for r in result["rebalances"]] == [START, month_start + H]
     assert result["spot_outage_hours"] == [month_start]
+
+
+def test_drift_band_rebalances_after_spot_value_drifts_past_band():
+    perp, marks, spot = tape([100, 104, 104, 110, 110, 110])
+    result = run_funding_carry(perp, marks, [], spot, free(target_fraction=.43, drift_band=.05))
+    drift = [r for r in result["rebalances"] if r["reason"] == "drift"]
+    assert [r["timestamp_ms"] for r in drift] == [START + 4 * H]
+    assert drift[0]["quantity"] == pytest.approx(.43 * 10000 / 110)
+    assert all(r["reason"] != "drift" for r in run_funding_carry(perp, marks, [], spot, free(target_fraction=.43))["rebalances"])
