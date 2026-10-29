@@ -1,0 +1,4 @@
+# Keep LF everywhere: frozen manifests and paper runs hash source bytes.
+* text=auto eol=lf
+*.zip binary
+*.sqlite3 binary
