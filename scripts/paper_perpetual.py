@@ -22,7 +22,7 @@ from app.config.settings import Settings
 from app.data.live_perpetual import BinanceUsdmPublicFeed, FeedError
 from app.execution.paper_replay import replay_research_fills
 from app.execution.paper_runner import (COST_CASES, HOUR_MS, STRATEGIES, PaperRunner, RunConfig, SystemClock,
-                                        source_hashes)
+                                        frozen_books, frozen_carry_books, source_hashes)
 from app.execution.perpetual_paper import PaperPortfolioBook
 from app.monitoring.paper_checks import reconcile, stop_breach, StopRule
 from app.portfolio.research_risk import PortfolioLimits
@@ -118,7 +118,17 @@ class OfflineFeed:
 def status(run_dir: Path) -> None:
     meta = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
     config = RunConfig(meta["run_id"], meta["mode"], meta["start_ms"], meta["end_ms"])
-    runner = PaperRunner(run_dir, OfflineFeed(), SystemClock(), manifest(), config)
+    recorded = json.loads((run_dir / "events.jsonl").open(encoding="utf-8").readline())["payload"]
+    try:
+        runner = PaperRunner(run_dir, OfflineFeed(), SystemClock(), manifest(), config)
+    except ValueError as exc:
+        if "run identity" not in str(exc):
+            raise
+        # Older runs were recorded by different paper code: replay read-only and say so.
+        print("WARNING: paper source or config changed since this run started; read-only replay with current code")
+        carry = {k: v for k, v in frozen_carry_books().items() if k in recorded.get("carry_cases", [])}
+        runner = PaperRunner(run_dir, OfflineFeed(), SystemClock(), manifest(), config, carry_books=carry,
+                             books=frozen_books(manifest()), verify_identity=False)
     hours = (min(SystemClock().now_ms(), config.end_ms) - config.start_ms) // HOUR_MS
     kinds: dict[str, int] = {}
     for incident in runner.incidents:
@@ -136,6 +146,19 @@ def status(run_dir: Path) -> None:
               f"open={len(book.book)} fees={sum(t.fees for t in book.trades):.2f} "
               f"funding={sum(t.funding for t in book.trades):.2f} stop_rule={stop_breach(book, StopRule()) or 'ok'} "
               f"reconcile={'ok' if not issues else issues}")
+    for name, carry in runner.carry_books.items():
+        equity = carry.points[-1][1] if carry.points else carry.initial_cash
+        b = carry.book
+        print(f"  {name}: equity={equity:.2f} return={equity / carry.initial_cash - 1:+.4%} "
+              f"rebalances={len(b.rebalances)} funding={b.funding:.2f} fees={b.fees:.2f} slippage={b.slippage:.2f} "
+              f"liquidated={'yes' if carry.liquidated_at else 'no'} hedge={'ok' if not carry.hedge_issues() else carry.hedge_issues()}")
+    for cost, book in runner.books.items():
+        carry = runner.carry_books.get(f"carry_f043_drift5:{cost}")
+        if carry is None or not book.points or not carry.points:
+            continue
+        combined = book.points[-1].equity + carry.points[-1][1] - book.initial_cash
+        print(f"  combined trend+carry_f043_drift5 {cost}: equity={combined:.2f} "
+              f"return={combined / book.initial_cash - 1:+.4%} (additive, as in experiment 3)")
 
 
 def main() -> None:

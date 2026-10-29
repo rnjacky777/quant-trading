@@ -13,6 +13,7 @@ from urllib.request import urlopen
 from app.data.models import Candle, FundingRate
 
 BASE_URL = "https://fapi.binance.com"
+SPOT_URL = "https://api.binance.com"
 EXCHANGE = "binance-usdm"
 SYMBOL = "BTC/USDT"
 HOUR_MS = 3600000
@@ -48,6 +49,7 @@ class PerpetualFeed(Protocol):
     def quote(self) -> Quote: ...
     def mark(self) -> MarkSnapshot: ...
     def funding(self, start_ms: int, end_ms: int) -> list[FundingRate]: ...
+    def spot_quote(self) -> Quote: ...
 
 
 class BinanceUsdmPublicFeed:
@@ -55,11 +57,11 @@ class BinanceUsdmPublicFeed:
                  timeout: float = 10, attempts: int = 3) -> None:
         self.clock, self.timeout, self.attempts = clock, timeout, attempts
 
-    def _get(self, path: str):
+    def _get(self, path: str, base: str = BASE_URL):
         error: Exception | None = None
         for attempt in range(self.attempts):
             try:
-                with urlopen(BASE_URL + path, timeout=self.timeout) as response:
+                with urlopen(base + path, timeout=self.timeout) as response:
                     return json.loads(response.read())
             except (URLError, TimeoutError, OSError, ValueError) as exc:
                 error = exc
@@ -94,3 +96,10 @@ class BinanceUsdmPublicFeed:
         # Records without markPrice are omitted here and handled as missing by the runner.
         return [FundingRate(EXCHANGE, SYMBOL, int(r["fundingTime"]), float(r["fundingRate"]), float(r["markPrice"]))
                 for r in rows if r.get("markPrice") and float(r["markPrice"]) > 0]
+
+    def spot_quote(self) -> Quote:
+        """Spot book has no timestamp; freshness uses the latest spot trade time for both fields."""
+        book = self._get("/api/v3/ticker/bookTicker?symbol=BTCUSDT", SPOT_URL)
+        trade = self._get("/api/v3/trades?symbol=BTCUSDT&limit=1", SPOT_URL)[-1]
+        return Quote(float(book["bidPrice"]), float(book["askPrice"]), float(trade["price"]),
+                     int(trade["time"]), self.clock(), int(trade["time"]))

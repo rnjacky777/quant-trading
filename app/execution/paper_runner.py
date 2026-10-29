@@ -1,4 +1,5 @@
-"""Forward paper runner: public data -> completed bars -> frozen signals -> four cost books.
+"""Forward paper runner: public data -> completed bars -> frozen signals -> four cost books,
+plus funding-carry books (spot long + perpetual short) observed alongside.
 
 Every state change is a ledger event applied by the same code path live and on
 restart, so recovery replays recorded decisions instead of deciding again. No
@@ -12,10 +13,12 @@ from pathlib import Path
 import time
 from typing import Protocol
 
+from app.backtest.funding_carry import CarryConfig
 from app.backtest.long_short_research import PerpetualResearchConfig
 from app.backtest.portfolio_research import ResearchSleeve
 from app.data.live_perpetual import FeedError, MarkSnapshot, PerpetualFeed, Quote
 from app.data.models import Candle, FundingRate
+from app.execution.carry_paper import PaperCarryBook
 from app.execution.paper_ledger import PaperLedger
 from app.execution.perpetual_paper import FillPrices, PaperPortfolioBook, sleeve_signals
 from app.monitoring.paper_checks import DataQualityLimits, StopRule, quote_issues, reconcile, stop_breach
@@ -28,8 +31,12 @@ FUNDING_INTERVAL_MS = 8 * HOUR_MS
 WARMUP_HOURS = 243
 COST_CASES = ((5, 5), (10, 5), (10, 10), (20, 10))
 PRIMARY = "5/5"
+# Trend cost key -> carry (perp fee, perp slippage, spot fee, spot slippage), as in the carry research.
+CARRY_COSTS = {"5/5": (5, 5, 10, 5), "10/5": (10, 5, 10, 5), "10/10": (10, 10, 20, 10), "20/10": (20, 10, 20, 10)}
+CARRY_VARIANTS = {"carry_f067": dict(target_fraction=2 / 3), "carry_f043_drift5": dict(target_fraction=.43, drift_band=.05)}
 PAPER_SOURCES = ("app/execution/perpetual_paper.py", "app/execution/paper_ledger.py",
                  "app/execution/paper_runner.py", "app/data/live_perpetual.py", "app/monitoring/paper_checks.py",
+                 "app/execution/carry_paper.py", "app/backtest/funding_carry.py",
                  "app/backtest/portfolio_research.py", "app/backtest/long_short_research.py",
                  "app/portfolio/research_risk.py", "app/risk/regime.py", "app/risk/sizing.py",
                  "app/strategies/sweep_structure_confirm.py", "app/strategies/swing_efficiency.py",
@@ -83,6 +90,11 @@ def frozen_books(manifest: dict) -> dict[str, PaperPortfolioBook]:
     return books
 
 
+def frozen_carry_books() -> dict[str, PaperCarryBook]:
+    return {f"{variant}:{cost}": PaperCarryBook(CarryConfig(*CARRY_COSTS[cost], **rules))
+            for variant, rules in CARRY_VARIANTS.items() for cost in CARRY_COSTS}
+
+
 def source_hashes(root: Path = Path(".")) -> dict[str, str]:
     return {p: sha256((root / p).read_bytes()).hexdigest() for p in PAPER_SOURCES}
 
@@ -91,17 +103,24 @@ class PaperRunner:
     def __init__(self, run_dir: Path, feed: PerpetualFeed, clock: Clock, manifest: dict, config: RunConfig,
                  *, quality: DataQualityLimits = DataQualityLimits(), rule: StopRule = StopRule(),
                  hashes: Callable[[], dict[str, str]] = source_hashes,
-                 books: dict[str, PaperPortfolioBook] | None = None) -> None:
+                 books: dict[str, PaperPortfolioBook] | None = None,
+                 carry_books: dict[str, PaperCarryBook] | None = None, verify_identity: bool = True) -> None:
         self.feed, self.clock, self.config, self.quality, self.rule = feed, clock, config, quality, rule
-        # Tests inject books; a real run always uses the frozen manifest.
+        # Only read-only status may skip the identity check; it must report that it did.
+        self.verify_identity = verify_identity
+        # Tests inject books; a real run always uses the frozen manifest and all carry books.
         self.books = books if books is not None else frozen_books(manifest)
+        if carry_books is None:
+            carry_books = frozen_carry_books() if books is None else {}
+        self.carry_books = carry_books
         if PRIMARY not in self.books:
             raise ValueError("primary 5/5 cost book required")
         self.meta = dict(run_id=config.run_id, mode=config.mode, start_ms=config.start_ms, end_ms=config.end_ms,
                          manifest_sha256=sha256(json.dumps(manifest, sort_keys=True).encode()).hexdigest(),
                          paper_source_sha256=hashes(), quality=asdict(quality), stop_rule=asdict(rule),
                          cost_cases=list(self.books), primary=PRIMARY,
-                         fill_model="first quote after decision: buy ask / sell bid, then adverse slippage bps")
+                         fill_model="first quote after decision: buy ask / sell bid, then adverse slippage bps",
+                         carry_cases=list(self.carry_books), carry_stop_rule="informational only; not registered")
         self.bars: dict[int, Candle] = {}
         self.bar_received: dict[int, int] = {}
         self.funding: dict[int, FundingRate] = {}
@@ -111,6 +130,7 @@ class PaperRunner:
         self.decided: set[int] = set()
         self.closed: set[int] = set()
         self.terminated: dict | None = None
+        self.carry_breached: set[str] = set()
         self.ledger = PaperLedger(run_dir / "events.jsonl")
         for event in self.ledger.events:
             self._apply(event.type, event.payload)
@@ -121,7 +141,7 @@ class PaperRunner:
     # ---- event application (shared by live path and restart replay) ----
     def _apply(self, type_: str, p: dict) -> None:
         if type_ == "run":
-            if {k: p[k] for k in self.meta} != self.meta:
+            if self.verify_identity and {k: p.get(k) for k in self.meta} != self.meta:
                 raise ValueError("run identity, config or paper source changed; start a new registered run")
         elif type_ == "bar":
             self.bars[p["candle"]["timestamp_ms"]] = Candle(**p["candle"])
@@ -167,6 +187,12 @@ class PaperRunner:
                                 fill_ms=quote.received_ms, funding=events, allow_entries=p["allow_entries"])
             else:
                 book.settle_funding(events)
+        spot = Quote(**p["spot_quote"]) if p.get("spot_quote") else None
+        usable = p.get("carry_quotes_ok", False)
+        for carry in self.carry_books.values():
+            carry.settle_funding(events)
+            carry.on_decision(hour, spot if usable else None, quote if usable else None,
+                              first_hour=hour == self.config.start_ms)
         self.decided.add(hour)
 
     def _apply_tick(self, p: dict) -> None:
@@ -176,6 +202,8 @@ class PaperRunner:
             book.check_risk(hour_ms=p["hour_ms"], identity=self._identity(), trade_low=quote.last, trade_high=quote.last,
                             mark_low=mark, mark_high=mark, liquidation_reference=lambda lot, level: mark,
                             stop_reference=lambda lot: prices.closing(lot.position.direction), fill_ms=quote.received_ms)
+        for carry in self.carry_books.values():
+            carry.on_tick(p["hour_ms"], mark)
 
     def _apply_close(self, p: dict) -> None:
         events = [self.funding[ts] for ts in p["funding_ts"]]
@@ -183,6 +211,9 @@ class PaperRunner:
             book.settle_funding(events)
             book.observe_margin(p["mark_low"], p["mark_high"])
             book.mark_point(p["hour_ms"], p["mark_close"])
+        for carry in self.carry_books.values():
+            carry.settle_funding(events)
+            carry.on_close(p["hour_ms"], p.get("spot_last"), p["mark_close"])
         self.closed.add(p["hour_ms"])
 
     def _apply_termination(self, p: dict) -> None:
@@ -192,6 +223,10 @@ class PaperRunner:
                 book.close_all(hour_ms=p["hour_ms"], identity=self._identity(), prices=FillPrices(quote.ask, quote.bid),
                                reason=p["reason"], fill_ms=quote.received_ms)
                 book.mark_point(p["hour_ms"], p["mark"])
+            if p.get("spot_quote"):
+                spot = Quote(**p["spot_quote"])
+                for carry in self.carry_books.values():
+                    carry.close_all(p["hour_ms"], spot, quote)
         self.terminated = p
 
     def _record(self, type_: str, event_id: str, payload: dict) -> bool:
@@ -298,12 +333,24 @@ class PaperRunner:
         if mark is None and quote is not None:
             mark = quote.last
         reasons += sorted(self.entry_block)
+        spot, carry_reasons = None, []
+        if self.carry_books:
+            try:
+                spot = self.feed.spot_quote()
+                carry_reasons += ["spot_" + r for r in quote_issues(spot, decision_ms, self.quality)]
+            except FeedError:
+                carry_reasons.append("spot_quote_unavailable")
+            if quote is None or quote_issues(quote, decision_ms, self.quality):
+                carry_reasons.append("perp_quote_unusable")
         self._record("decision", f"decision:{hour}", dict(hour_ms=hour, decision_ms=decision_ms,
             signals_available=signals_available and quote is not None, allow_entries=not reasons,
             block_reasons=reasons, quote=asdict(quote) if quote else None, mark=mark,
-            funding_ts=self._due_funding(-1, hour)))
+            funding_ts=self._due_funding(-1, hour), spot_quote=asdict(spot) if spot else None,
+            carry_quotes_ok=bool(self.carry_books) and not carry_reasons, carry_block_reasons=carry_reasons))
         if reasons:
             self._incident("entries_blocked", str(hour), dict(reasons=reasons))
+        if carry_reasons and any(c.pending for c in self.carry_books.values()):
+            self._incident("carry_rebalance_deferred", str(hour), dict(reasons=carry_reasons))
 
     def _poll_until(self, boundary: int, hour: int) -> None:
         failures = 0
@@ -312,7 +359,8 @@ class PaperRunner:
                 quote, snap = self.feed.quote(), self._mark()
                 self.trades_seen.append(quote.last)
                 self.marks.append(snap.mark)
-                if hour in self.decided and any(b.risk_triggered(quote.last, snap.mark) for b in self.books.values()):
+                if hour in self.decided and (any(b.risk_triggered(quote.last, snap.mark) for b in self.books.values())
+                                             or any(c.risk_triggered(snap.mark) for c in self.carry_books.values())):
                     self._record("tick", f"tick:{hour}:{quote.received_ms}", dict(hour_ms=hour, quote=asdict(quote), mark=snap.mark))
             except FeedError as exc:
                 failures += 1
@@ -331,9 +379,25 @@ class PaperRunner:
             self._incident("valuation_gap", str(hour), {})
             return
         mark_close = self.marks[-1]
+        spot_last = None
+        if self.carry_books:
+            try:
+                spot_last = self.feed.spot_quote().last
+            except FeedError:
+                self._incident("spot_valuation_gap", str(hour), {})
         self._record("hour_close", f"close:{hour}", dict(hour_ms=hour, mark_close=mark_close,
             mark_low=min(self.marks), mark_high=max(self.marks), observations=len(self.marks),
-            funding_ts=self._due_funding(hour, hour + HOUR_MS - 1)))
+            funding_ts=self._due_funding(hour, hour + HOUR_MS - 1), spot_last=spot_last))
+        for name, carry in self.carry_books.items():
+            issues = carry.hedge_issues()
+            if carry.liquidated_at is not None:
+                issues.append("liquidated")
+            if issues:
+                self._incident("carry_check", f"{hour}:{name}", dict(book=name, issues=issues))
+            breach = carry_breach(carry, self.rule)
+            if breach and name not in self.carry_breached:
+                self.carry_breached.add(name)
+                self._incident("carry_stop_rule_breach", name, dict(book=name, breach=breach))
         self.marks, self.trades_seen = [], []
         for name, book in self.books.items():
             issues = reconcile(book, mark_close)
@@ -345,16 +409,17 @@ class PaperRunner:
             self._terminate(hour + HOUR_MS, "research_stop", dict(breaches=breached))
 
     def _terminate(self, hour: int, reason: str, detail: dict) -> None:
-        quote, mark = None, None
+        quote, mark, spot = None, None, None
         for _ in range(3):
             try:
                 quote = self.feed.quote()
                 mark = self.feed.mark().mark
+                spot = self.feed.spot_quote() if self.carry_books else None
                 break
             except FeedError:
                 self.clock.sleep(self.config.poll_seconds)
         self._record("terminated", "terminated", dict(hour_ms=hour, reason=reason, quote=asdict(quote) if quote else None,
-                     mark=mark, **detail))
+                     mark=mark, spot_quote=asdict(spot) if spot else None, **detail))
 
     # ---- main loop ----
     def run(self) -> dict:
@@ -391,3 +456,15 @@ class PaperRunner:
             self._poll_until(current + HOUR_MS, current)
             self._close_hour(current)
         return self.terminated
+
+
+def carry_breach(carry: PaperCarryBook, rule: StopRule) -> str | None:
+    """Same thresholds as the registered stop rule, reported only; carry observation is not yet registered."""
+    peak = carry.initial_cash
+    for _, equity in carry.points:
+        peak = max(peak, equity)
+        if equity / carry.initial_cash - 1 <= rule.minimum_return:
+            return "cumulative_return_floor"
+        if 1 - equity / peak >= rule.maximum_drawdown:
+            return "maximum_drawdown"
+    return None

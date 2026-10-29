@@ -283,5 +283,5 @@ def test_frozen_books_follow_manifest_without_order_capability():
     with pytest.raises(ValueError):
         frozen_books({**manifest, "engine_flags": {**manifest["engine_flags"], "swing_long_signal_hold": True}})
     public = {n for n in dir(BinanceUsdmPublicFeed) if not n.startswith("_")}
-    assert public == {"server_time", "closed_hourly", "quote", "mark", "funding"}
+    assert public == {"server_time", "closed_hourly", "quote", "mark", "funding", "spot_quote"}
     assert WARMUP_HOURS == 243
