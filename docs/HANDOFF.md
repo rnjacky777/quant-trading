@@ -54,7 +54,34 @@
   - 4 年 × 4 成本共 16 個案例，沒有強平。主要成本四年平均 4.54%（原基準 2.40%），最差年份 +1.28%，最大回撤 −1.22%。
   - **判定：權衡候選**，只差在平均 5%。不會為了湊到 5% 而調 f。
   - 下一步要使用者決定：在 paper 系統加現貨腿後做前瞻觀察、做套利加趨勢的組合研究，或調整目標。
+- 實驗 2：套利（f = 0.5）＋趨勢基準疊加，事後組合，結果見 `2026-10-29-carry-trend-overlay-results.md`。主要成本平均 5.89%，但事前定義的擔保稽核在急漲時超出，最高 1.14 倍，依登記**拒絕**。原因是推導 f 時沒有考慮兩次再平衡之間的價格漂移。後續有 A（加緩衝）、B（耦合准入）、C（只用套利）三個選項，等使用者決定，不得直接放寬稽核。
 - 72 小時預演第一次啟動後，因使用者網路要斷線而停止，當時還沒到開始時間，帳本只有 run 紀錄。重跑時直接開新的 run。
+
+## 3c. 換電腦設定步驟（使用者預計 2026-10-31 換到新電腦）
+
+舊電腦的預演 `rehearsal-20261029T08Z` 只算短期試跑，用來抓程式問題，**不算正式的 72 小時**。正式預演要在新電腦上開新的 run，從頭連續跑完 72 小時。
+
+1. **程式碼**：`git clone https://github.com/rnjacky777/quant-trading.git`，然後 `git checkout research/paper-and-funding-carry`。這個分支還沒合併進 main。
+2. **資料**：從舊電腦手動複製整個 `data/` 資料夾（約 1 GB），放到 repo 根目錄。`data/` 被 gitignore 排除，git 不會帶過去。裡面有：
+   - 歷史行情：`btc-perpetual-1h`、`btc-perpetual-validation-1h`、`btc-spot-1h`、`btc-spot-1h-2022-2023`。
+   - 研究結果檔：`perpetual-*.json`、`funding-carry-research.json`、`carry-trend-overlay-research.json` 等。
+   - 驗證登記：`validation-preregistration.json`。
+   - 舊電腦的試跑帳本：`paper-perpetual/`。
+
+   如果遺失，行情可以用 `scripts/fetch_*` 重新下載並核對 checksum；但研究結果檔要重跑才能重建，有些腳本會拒絕重跑。
+3. **Python 環境**（Python 3.12+，不要直接複製 `.venv`）：
+   ```powershell
+   py -3.12 -m venv .venv
+   .\.venv\Scripts\python -m pip install -e ".[dev]"
+   .\.venv\Scripts\python -m pytest -q
+   ```
+   預期 310 項全部通過。
+4. **重現檢查**：`.\.venv\Scripts\python -m scripts.paper_perpetual parity`，8 個案例都要顯示 `equal`。這一步會在 `data/paper-perpetual/` 新增一份 parity 檔。
+5. **電腦設定**：
+   - 關閉睡眠與休眠，避免自動更新在預演期間重開機。
+   - 如果是虛擬機，先裝好 Guest Additions，讓時鐘同步；預演要求時鐘誤差在 1 秒內。
+   - 確認 `LIVE_TRADING` 沒有設為 true。
+6. **開始正式預演**：`.\.venv\Scripts\python -m scripts.paper_perpetual rehearse --hours 72`。過程中用 `status --run-dir data/paper-perpetual/<run_id>` 檢查狀態。要在主機 hash 不變的前提下連續跑完；不要在預演期間修改 `PAPER_SOURCES` 列出的檔案，否則重啟時會被拒絕接續。
 
 ## 4. 為什麼過去改了這麼多版仍然沒進展
 

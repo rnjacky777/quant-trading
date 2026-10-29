@@ -121,7 +121,7 @@ def _month_start(timestamp_ms: int) -> bool:
 
 def run_funding_carry(perp: list[Candle], marks: list[MarkPriceCandle], funding: list[FundingRate],
                       spot: dict[int, Candle], config: CarryConfig,
-                      known_spot_outages: frozenset[int] = frozenset()) -> dict:
+                      known_spot_outages: frozenset[int] = frozenset(), record_hourly: bool = False) -> dict:
     if not perp or [m.timestamp_ms for m in marks] != [c.timestamp_ms for c in perp]:
         raise ValueError("aligned hourly perpetual candles and marks required")
     if any(b.timestamp_ms - a.timestamp_ms != HOUR_MS for a, b in zip(perp, perp[1:])):
@@ -141,6 +141,7 @@ def run_funding_carry(perp: list[Candle], marks: list[MarkPriceCandle], funding:
     max_leverage = max_margin_ratio = 0.0
     last_spot_close = None
     basis = []
+    hourly = []
     for i, candle in enumerate(perp):
         t, mark = candle.timestamp_ms, marks[i]
         spot_bar = spot.get(t)
@@ -170,6 +171,9 @@ def run_funding_carry(perp: list[Candle], marks: list[MarkPriceCandle], funding:
         if equity <= 0 or not isfinite(equity):
             raise ValueError("carry account insolvent")
         curve.append(EquityPoint(t, equity, book.short_qty > 0))
+        if record_hourly:
+            hourly.append(dict(timestamp_ms=t, spot_value=book.spot_qty * spot_close,
+                               short_notional=book.short_qty * mark.close, perp_equity=book.perp_equity(mark.close)))
         if book.short_qty:
             perp_equity = book.perp_equity(mark.close)
             max_leverage = max(max_leverage, book.short_qty * mark.close / perp_equity)
@@ -188,4 +192,5 @@ def run_funding_carry(perp: list[Candle], marks: list[MarkPriceCandle], funding:
                 rebalances=book.rebalances, emergency_rebalances=sum(r["reason"] == "emergency" for r in book.rebalances),
                 maximum_perp_leverage=max_leverage, maximum_margin_ratio=max_margin_ratio,
                 basis_min=min(basis), basis_max=max(basis),
-                spot_outage_hours=sorted(missing), equity_curve=[(p.timestamp_ms, p.equity) for p in curve])
+                spot_outage_hours=sorted(missing), equity_curve=[(p.timestamp_ms, p.equity) for p in curve],
+                **(dict(hourly=hourly) if record_hourly else {}))
