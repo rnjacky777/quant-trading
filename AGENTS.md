@@ -44,12 +44,18 @@ The freeze covers only the paper-observed version. Two tracks run in parallel
   Risk bounds apply to all cost cases. All four years are now tuning evidence
   for changes informed by their results. See 2026-10-29-risk-budget-design.md.
   The objective is not a guarantee or licence to search until history fits.
-- Unseen validation: 2022/2023, preregistered in
-  `docs/research/2026-10-28-validation-preregistration.md`; data in
-  `data/btc-perpetual-validation-1h`. Do not open it outside that procedure.
-  The baseline was evaluated once (failed: 2022 −0.31%, 2023 +4.58%); see
-  `docs/research/2026-10-29-validation-2022-2023-results.md`. Changes informed
-  by that result cannot claim 2022/2023 validation.
+- **Data roles (user-approved 2026-10-29), replacing the old 2022/2023 holdout:**
+  - *Development*: BTC and ETH 2022–2025. Free iteration, but count every trial,
+    use walk-forward inside it (e.g. choose on 2022–2023, check 2024–2025),
+    require cross-year consistency, an economic reason and material effect size.
+  - *Sealed validation*: BTC USDT perpetual + spot 2020-01..2021-09 in
+    `data/sealed-btc-2020-2021` (integrity-checked only). Never read it for
+    research. Only a candidate that passed development walk-forward may be
+    evaluated, once, after preregistration; log every evaluation in
+    `docs/research/sealed-validation-log.md` (budget: at most 3 per quarter).
+  - *Final confirmation*: preregistered forward paper data.
+  The 2022/2023 baseline evaluation (failed: 2022 −0.31%, 2023 +4.58%) stays on
+  record in `docs/research/2026-10-29-validation-2022-2023-results.md`.
 - New-sleeve screens already rejected on 2024/2025 (not sent to validation):
   negative-funding long and 28-day daily time-series momentum. See
   `docs/research/2026-10-28-{funding-sleeve,daily-momentum}-results.md`.

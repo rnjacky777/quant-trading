@@ -81,3 +81,26 @@ def test_drift_band_rebalances_after_spot_value_drifts_past_band():
     assert [r["timestamp_ms"] for r in drift] == [START + 4 * H]
     assert drift[0]["quantity"] == pytest.approx(.43 * 10000 / 110)
     assert all(r["reason"] != "drift" for r in run_funding_carry(perp, marks, [], spot, free(target_fraction=.43))["rebalances"])
+
+
+def test_funding_pause_stays_flat_until_recent_funding_is_positive():
+    perp, marks, spot = tape([100] * 12)
+    history = [FundingRate("binance-usdm", "BTC/USDT", START - k * 8 * H, -.0001, 100) for k in range(1, 4)]
+    flat = run_funding_carry(perp, marks, [], spot, free(pause_funding_events=3), funding_history=history)
+    assert flat["rebalances"] == [] and flat["final_equity"] == pytest.approx(10000)
+    positive = [FundingRate("binance-usdm", "BTC/USDT", START + 2 * H, .002, 100)]
+    resumed = run_funding_carry(perp, marks, positive, spot, free(pause_funding_events=3), funding_history=history)
+    assert [r["reason"] for r in resumed["rebalances"]][0] == "entry"
+    assert resumed["rebalances"][0]["timestamp_ms"] == START + 2 * H  # published at the hour, usable then
+
+
+def test_funding_pause_flattens_both_legs_when_funding_turns_negative():
+    perp, marks, spot = tape([100, 100, 120, 120, 120, 120])
+    history = [FundingRate("binance-usdm", "BTC/USDT", START - k * 8 * H, .001, 100) for k in (1, 2)]
+    negative = [FundingRate("binance-usdm", "BTC/USDT", START + 2 * H, -.003, 120)]
+    result = run_funding_carry(perp, marks, negative, spot, free(pause_funding_events=2), funding_history=history)
+    reasons = [r["reason"] for r in result["rebalances"]]
+    assert reasons[0] == "entry" and "pause" in reasons
+    pause = next(r for r in result["rebalances"] if r["reason"] == "pause")
+    assert pause["timestamp_ms"] == START + 2 * H and result["pauses"] == 1
+    assert result["final_equity"] == pytest.approx(10000 + 10000 * 2 / 3 / 100 * 120 * -.003)

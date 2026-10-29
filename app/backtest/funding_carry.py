@@ -28,6 +28,8 @@ class CarryConfig:
     emergency_margin_ratio: float = .25
     # 0 disables; otherwise rebalance when spot value exceeds target by this fraction (experiment 3).
     drift_band: float = 0
+    # 0 disables; otherwise hold only while the last N published funding rates sum above zero.
+    pause_funding_events: int = 0
 
     def __post_init__(self) -> None:
         values = (self.perp_fee_bps, self.perp_slippage_bps, self.spot_fee_bps, self.spot_slippage_bps)
@@ -35,6 +37,8 @@ class CarryConfig:
             raise ValueError("invalid carry costs")
         if not (isfinite(self.drift_band) and 0 <= self.drift_band < 1):
             raise ValueError("invalid drift band")
+        if type(self.pause_funding_events) is not int or self.pause_funding_events < 0:
+            raise ValueError("invalid funding pause window")
         if not (0 < self.target_fraction < 1 and self.initial_cash > 0 and 0 < self.emergency_margin_ratio < 1):
             raise ValueError("invalid carry sizing")
 
@@ -98,6 +102,18 @@ class CarryBook:
         self.rebalances.append(dict(timestamp_ms=timestamp_ms, reason=reason, equity_before=before,
                                     equity_after=after, quantity=target))
 
+    def flatten(self, timestamp_ms: int, spot_open: float, perp_open: float, reason: str) -> None:
+        """Close both legs and hold USDT only (funding pause)."""
+        before = self.equity(spot_open, perp_open)
+        if self.short_qty:
+            self._trade_short(-self.short_qty, perp_open)
+        if self.spot_qty:
+            self._trade_spot(-self.spot_qty, spot_open)
+        self.spot_cash += self.perp_wallet
+        self.perp_wallet = 0
+        self.rebalances.append(dict(timestamp_ms=timestamp_ms, reason=reason, equity_before=before,
+                                    equity_after=self.spot_cash, quantity=0.0))
+
     def apply_funding(self, event: FundingRate) -> None:
         amount = self.short_qty * event.mark_price * event.rate
         self.perp_wallet += amount
@@ -125,7 +141,9 @@ def _month_start(timestamp_ms: int) -> bool:
 
 def run_funding_carry(perp: list[Candle], marks: list[MarkPriceCandle], funding: list[FundingRate],
                       spot: dict[int, Candle], config: CarryConfig,
-                      known_spot_outages: frozenset[int] = frozenset(), record_hourly: bool = False) -> dict:
+                      known_spot_outages: frozenset[int] = frozenset(), record_hourly: bool = False,
+                      funding_history: list[FundingRate] = ()) -> dict:
+    """funding_history: events before the period, used only for the pause signal."""
     if not perp or [m.timestamp_ms for m in marks] != [c.timestamp_ms for c in perp]:
         raise ValueError("aligned hourly perpetual candles and marks required")
     if any(b.timestamp_ms - a.timestamp_ms != HOUR_MS for a, b in zip(perp, perp[1:])):
@@ -140,7 +158,9 @@ def run_funding_carry(perp: list[Candle], marks: list[MarkPriceCandle], funding:
         by_hour.setdefault(event.timestamp_ms // HOUR_MS * HOUR_MS, []).append(event)
     book = CarryBook(config, spot_cash=config.initial_cash)
     curve = [EquityPoint(perp[0].timestamp_ms - HOUR_MS, config.initial_cash, False)]
-    pending: str | None = "entry"
+    window = config.pause_funding_events
+    pending: str | None = None if window else "entry"
+    seen = [e.rate for e in sorted(funding_history, key=lambda e: e.timestamp_ms) if e.timestamp_ms < perp[0].timestamp_ms]
     liquidated_at = None
     max_leverage = max_margin_ratio = 0.0
     last_spot_close = None
@@ -153,7 +173,15 @@ def run_funding_carry(perp: list[Candle], marks: list[MarkPriceCandle], funding:
         for event in events:
             if event.timestamp_ms <= t:
                 book.apply_funding(event)
-        if liquidated_at is None and _month_start(t) and i > 0:
+                seen.append(event.rate)
+        if window and liquidated_at is None and spot_bar is not None and i < len(perp) - 1:
+            hold = len(seen) >= window and sum(seen[-window:]) > 0
+            if book.short_qty and not hold:
+                book.flatten(t, spot_bar.open, candle.open, "pause")
+                pending = None
+            elif not book.short_qty and hold and pending is None:
+                pending = "resume" if book.rebalances else "entry"
+        if liquidated_at is None and _month_start(t) and i > 0 and (not window or book.short_qty):
             pending = pending or "monthly"
         if pending and spot_bar is not None and liquidated_at is None:
             book.rebalance(t, spot_bar.open, candle.open, pending)
@@ -161,6 +189,7 @@ def run_funding_carry(perp: list[Candle], marks: list[MarkPriceCandle], funding:
         for event in events:
             if event.timestamp_ms > t:
                 book.apply_funding(event)
+                seen.append(event.rate)
         level = book.liquidated_by(mark.high)
         if level is not None:
             book.liquidate(max(mark.open, level))
@@ -198,6 +227,8 @@ def run_funding_carry(perp: list[Candle], marks: list[MarkPriceCandle], funding:
                 liquidation_fee=book.liquidation_fee, liquidated_at_ms=liquidated_at,
                 rebalances=book.rebalances, emergency_rebalances=sum(r["reason"] == "emergency" for r in book.rebalances),
                 maximum_perp_leverage=max_leverage, maximum_margin_ratio=max_margin_ratio,
-                basis_min=min(basis), basis_max=max(basis),
+                basis_min=min(basis) if basis else None, basis_max=max(basis) if basis else None,
+                pauses=sum(r["reason"] == "pause" for r in book.rebalances),
+                invested_hours=sum(p.invested for p in curve),
                 spot_outage_hours=sorted(missing), equity_curve=[(p.timestamp_ms, p.equity) for p in curve],
                 **(dict(hourly=hourly) if record_hourly else {}))
