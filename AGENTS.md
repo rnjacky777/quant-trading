@@ -44,6 +44,14 @@ The freeze covers only the paper-observed version. Two tracks run in parallel
   Risk bounds apply to all cost cases. All four years are now tuning evidence
   for changes informed by their results. See 2026-10-29-risk-budget-design.md.
   The objective is not a guarantee or licence to search until history fits.
+- **Objective B (user selected 2026-10-30) for new higher-risk candidates only**:
+  arithmetic mean annual net return ≥10% at primary costs over 2022–2025 (capital
+  reset each year), maximum drawdown ≤40% and worst annual return ≥−40% in every
+  cost case, doubled-cost mean >0; planned live capital 3,000 USDT. Objective A
+  still governs the frozen paper-observed version. Objective B does not authorize
+  editing the observed version or sweeping its parameters: each Objective B
+  candidate is one preregistered design with fixed candidates and walk-forward.
+  Any live system under Objective B needs an account-level loss stop.
 - **Data roles (user-approved 2026-10-29), replacing the old 2022/2023 holdout:**
   - *Development*: BTC and ETH 2022–2025. Free iteration, but count every trial,
     use walk-forward inside it (e.g. choose on 2022–2023, check 2024–2025),
