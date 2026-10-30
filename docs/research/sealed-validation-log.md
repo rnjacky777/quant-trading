@@ -21,4 +21,9 @@
 
 ## 評估紀錄
 
-目前 0 次。
+### 第 1 次（2026-10-30）：BTC 現貨 50 日均線濾網
+
+- 登記：`2026-10-30-btc-trend-filter-sealed-registration.md`（使用者同意，本季第 1 次）。
+- 執行：`python -m scripts.sealed_eval_btc_trend_filter`，輸出 `data/sealed-eval-1-btc-trend-filter.json`。執行前已比對封存檔案和 manifest 的 checksum。
+- **結果：通過**，四項判定標準在兩段期間都符合。詳見 `2026-10-30-btc-trend-filter-sealed-results.md`。
+- 封存驗證累計：1 次（本季 1/3）。

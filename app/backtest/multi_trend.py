@@ -6,6 +6,7 @@ positions are signed perp quantities against one USDT balance. Research only; no
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from math import isfinite
+from typing import Callable
 
 import numpy as np
 
@@ -65,7 +66,9 @@ def month_key(t: int) -> str:
 
 
 def run_multi_trend(bars: dict[str, dict[int, tuple[float, float, float, float]]], funding: dict[str, list[tuple[int, float]]],
-                    universe: dict[str, list[str]], config: TrendConfig, start_ms: int, end_ms: int) -> dict:
+                    universe: dict[str, list[str]], config: TrendConfig, start_ms: int, end_ms: int,
+                    weights: Callable[[dict[str, list[float]], TrendConfig, int], dict[str, float]] | None = None) -> dict:
+    """weights(closes, config, decision_ms) replaces the time-series direction rule when given."""
     days = range(start_ms, end_ms, DAY_MS)
     cash = config.initial_cash
     qty: dict[str, float] = {}
@@ -123,9 +126,9 @@ def run_multi_trend(bars: dict[str, dict[int, tuple[float, float, float, float]]
                     series = [bars.get(symbol, {}).get(t - k * DAY_MS) for k in range(need, 0, -1)]
                     if all(series) and t in bars.get(symbol, {}):
                         closes[symbol] = [b[3] for b in series]
-                weights = target_weights(closes, config)
-                for symbol in sorted(set(qty) | set(weights)):
-                    target = weights.get(symbol, 0.0) * equity / bars[symbol][t][0]
+                targets = weights(closes, config, t) if weights else target_weights(closes, config)
+                for symbol in sorted(set(qty) | set(targets)):
+                    target = targets.get(symbol, 0.0) * equity / bars[symbol][t][0]
                     trade(symbol, target - qty.get(symbol, 0.0), bars[symbol][t][0])
                 log["rebalances"] += 1
             elif datetime.fromtimestamp(t / 1000, timezone.utc).day == 1:
