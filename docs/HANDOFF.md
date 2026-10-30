@@ -83,6 +83,12 @@
 
 - **封存驗證 1（2026-10-30，使用者同意）：BTC 50 日均線濾網通過**，見 `2026-10-30-btc-trend-filter-sealed-results.md`。2020-02 到 12 月：+223%，回撤 −18.7%（直接持有 −53.6%）；2021-01 到 09 月：+90%，回撤 −25.2%（直接持有 −53.1%）。2020-03、2021-05 兩次崩跌時，策略分別是 0%、−4.3%。下一步：事前登記前瞻 paper，另外寫一個 runner，不動 `PAPER_SOURCES`。限制：兩段都是牛市，收益依賴 BTC 本身，開發期 2022 年 −33%。
 
+- **50 日均線濾網前瞻 paper（2026-10-30 建好，尚未正式啟動）**：登記 `2026-10-30-btc-trend-filter-forward-paper.md`；runner 是 `app/execution/filter_paper.py` 和 `scripts/paper_filter.py`，和 `PAPER_SOURCES` 完全分開。
+  - 4 本帳，各 3,000 USDT 虛擬本金；訊號直接呼叫回測的 `wants_btc`。
+  - 指令：`.venv/Scripts/python.exe -m scripts.paper_filter run --name forward-1`（每 5 分鐘 step 一次）；`status`；`parity`。
+  - 舊電腦上已經跑過 shakedown-1：2026-10-30 的決策是持有 USDT，重跑 step 不會重複記錄，parity 一致。
+  - 建議在新電腦上啟動 `forward-1`，因為登記要求 90 天內不能漏掉任何一天。原始碼改動後，同一個 run 名稱會拒絕啟動，要改用新的 run 名稱。
+
 ## 3c. 換電腦設定步驟（使用者預計 2026-10-31 換到新電腦）
 
 舊電腦的預演 `rehearsal-20261029T08Z` 只算短期試跑，用來抓程式問題，**不算正式的 72 小時**。正式預演要在新電腦上開新的 run，從頭連續跑完 72 小時。
